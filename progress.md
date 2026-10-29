@@ -13,9 +13,10 @@
 - [x] M06单页：总量、来源配置和健康、目标增改启停删除、高分代理分页、发布按钮、平台入口；实际已安装Edge回环交互验证，无Node常驻服务。
 - [x] 本地工程交付：精确锁定API／Linux-Python3.10 Worker／开发依赖，隔离venv检查；部署Compose、Dockerfile、私密配置准备／原生程序注册／只读探测／Worker回退脚本及逐步指引已编写。当前验证结果和边界见docs/validation.md。
 
+- [x] Git远程发布（2026-10-29，用户授权）：已配置用户指定的LorewalkerAlex/home-crawl-cluster，审查117个公开文件后创建首个提交05f4a3d，通过本机Airtcp临时代理推送main；回读远端HEAD／main均与该首个提交一致。真实密钥、运行库、测试产物及venv未提交。服务器没有变更。
+
 ## 未完成
 
-- [ ] Git远程发布：用户已指定LorewalkerAlex/home-crawl-cluster并授权推送，远程分支检查为空；准备创建首个提交并推送main，完成后核对本地与远端提交一致。
 - [ ] 用户服务器部署与正式业务联调：拉取仓库，生成私有配置，配置Token／节点／程序ID及M05内网HTTPS回调；服务器实际Compose检查、构建、API／Worker启动、小规模来源／测试／调用反馈闭环及资源观察；通过后再开启定时发布。本地未部署，具体步骤见deploy/proxypool/README.md。
 
 验收范围：本地使用合成端点、离线网页、回环HTTP/CONNECT目标及模拟CrawlabAPI；检查队列合批／回滚、63位评分、双时间、反馈重传、读写并行、热注册和浏览器。真实公开源、Docker镜像、原生Linux3.10运行、服务器正式Caddy路由及长期吞吐仍需上述部署阶段验证。配置示例不是用户设备的最终参数；默认先关自动发布，按CPU／内存／磁盘和Worker完成速度调整。
