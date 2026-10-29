@@ -4,9 +4,40 @@
 
 先审阅配置后分阶段执行，失败停在当前阶段，提供脱敏输出再分析。以下命令均在已有服务器SSH会话执行，外层显式处理非零；不在登录Shell启用严格模式、不安装trap、不执行exit。`tools/worker_image.sh`只作为独立子脚本运行，禁止source。服务器操作均由用户执行，本地助手不代部署。
 
+## 本轮部署安排与只读核对
+
+2026-10-29，本地Codex通过既有codex-audit账号只读核对：服务器可通过PC的`http://192.168.1.120:5780`读取本仓库main；Docker加载的HTTP／HTTPS代理也指向该地址。12个CPU线程，内存总计约15.1GiB、当时可用约13.2GiB；持久盘约860GiB、Docker运行盘约422GiB可用。这些是本轮快照，不是持续监测或负载保证。
+
+**端口修订：13004已由Cashew使用。** 本业务宿主绑定改为`127.0.0.1:13005`（本轮只读时未监听），容器内部API仍用13004；健康探针和容器内probe无需改端口。既有服务映射保持原样。
+
+| 阶段 | 用户执行内容 | 验收后再继续 |
+| --- | --- | --- |
+| A | 代理拉取Git、准备私有配置，自动发布保持关闭 | 仓库版本正确、秘密仅在私密目录、无业务任务产生 |
+| B | 顺序构建API／Worker镜像，先启动API回环端口 | 依赖安装完成、API healthy、鉴权读接口通过 |
+| C | 现有Caddy增量添加M05仅内网入口 | 浏览器和Worker到M05可信HTTPS可达；既有入口正常 |
+| D | 空闲时替换Worker业务镜像，登记两类原生程序 | Worker在线且保留单槽，程序ID／节点ID有效 |
+| E | 一个来源、一个实际目标，手动抓取与小批测试 | 原生任务退出、回调COMMIT、SQLite统计／评分对应 |
+| F | 实际获取／使用反馈，然后启用有限定时发布 | 获取不改分、反馈改分、队列与资源稳定、无持续积压 |
+
+首轮建议：M05先沿用0.5 CPU／512MiB；现有Worker沿用1 CPU／1GiB／单任务槽。真实手动测试先用test_batch_size=10、worker_concurrency=2；稳定后再按完成时间调大。目标分数门槛保留50，冷启动未积累足够成功样本时NO_PROXY_AVAILABLE是正常结果；先看样本和计分，再验收实际取到高分代理。
+
+A—D不发布真实采集任务，E开始才操作正式业务数据。先验证一条完整链路，再增加来源／目标和节点。测试阶段临时新增的来源／目标在验收后通过页面删除或停用；正式配置、数据库和业务程序保留，不留下额外PoC容器或脚本。
+
+Git、基础镜像拉取和构建中pip下载是不同代理入口。镜像拉取复用已有Docker daemon代理，下面的构建命令另外显式传build-arg；不把通用出网代理写进业务镜像ENV。代理测试仍通过每个候选代理访问目标，避免把PC代理的成功误算成候选代理成功。依据：[Docker代理文档](https://docs.docker.com/engine/cli/proxy/)、[预定义代理构建参数](https://docs.docker.com/build/building/variables/#proxy-arguments)。PC与Airtcp在下载／构建阶段需保持在线。
+
 ## 1. 拉取与准备
 
-将仓库发布到用户选定的Git远程，再在服务器clone到例如`/srv/apps/home-crawl-cluster`；不猜测远程URL。后续命令从该仓库根目录执行。
+仓库已发布至`https://github.com/LorewalkerAlex/home-crawl-cluster.git`的main。`/srv/apps`本轮只读核对归eureka所有，目标目录尚不存在；以下由eureka在服务器现有SSH会话执行，无需sudo：
+
+```bash
+if git -c http.proxy=http://192.168.1.120:5780 clone --branch main https://github.com/LorewalkerAlex/home-crawl-cluster.git /srv/apps/home-crawl-cluster && git -C /srv/apps/home-crawl-cluster log -1 --oneline; then
+    printf '%s\n' 'Repository cloned; stop here before the next preparation stage.'
+else
+    printf '%s\n' 'Clone failed; stop and report this output. Do not delete an existing directory.'
+fi
+```
+
+后续命令从该仓库根目录执行。准备之前先确认本轮克隆成功，不重复运行旧上传PoC。
 
 先只读预览，再创建正式配置目录；准备工具不调用Docker、不修改既有文件、不输出密钥：
 
@@ -50,7 +81,7 @@ fi
 - source_registry_file为`/config/source-registry.json`，database为`/data/proxypool.sqlite3`，容器host为0.0.0.0、port为13004。先保留publishing_enabled=false。
 - 可选crawlab_ui_url填既有内网管理入口；其他时间、条数、CPU／内存限制按设备调整。全局config变更需重启API，来源开关和显式注册表不需要重启。
 
-M05只映射宿主127.0.0.1:13004。需要在现有Caddy/DNS方案新增M05内网HTTPS站点，反代该回环端口，限制家庭LAN及既有Crawlab Docker源网段；**不要公开解析到公网或开放数据库端口**。共享既有crawlab_default网络与192.168.1.110内网DNS，减少重复网络／防火墙规则。若实际网络名不同只改CRAWLAB_NETWORK配置，不盲猜网段。
+M05只映射宿主127.0.0.1:13005（容器内仍为13004）。需要在现有Caddy/DNS方案新增M05内网HTTPS站点，反代该回环端口，限制家庭LAN及既有Crawlab Docker源网段；**不要公开解析到公网或开放数据库端口**。共享既有crawlab_default网络与192.168.1.110内网DNS，减少重复网络／防火墙规则。若实际网络名不同只改CRAWLAB_NETWORK配置，不盲猜网段。
 
 路由配置需按服务器当前完整Caddyfile增量设计：原位保存inode，先当前版本格式检查、再校验、再reload，回读用途说明并验证可信TLS和来源限制；不覆盖完整文件。此步骤尚待服务器阶段确认真实域名／片段，本仓库没有伪装成已验收的Caddy配置。接通前可先在回环验证M05，但不要发Worker业务任务。异设备Worker还必须能用同一路径回传M05；本机Docker内部DNS可用并不替代跨设备验证。
 
@@ -67,7 +98,7 @@ fi
 ```
 
 ```bash
-if sudo docker compose -f deploy/proxypool/compose.yaml build api && sudo bash tools/worker_image.sh build; then
+if sudo docker compose -f deploy/proxypool/compose.yaml build --build-arg HTTP_PROXY=http://192.168.1.120:5780 --build-arg HTTPS_PROXY=http://192.168.1.120:5780 api && sudo bash tools/worker_image.sh build --build-arg HTTP_PROXY=http://192.168.1.120:5780 --build-arg HTTPS_PROXY=http://192.168.1.120:5780; then
     printf '%s\n' 'API and Worker images built.'
 else
     printf '%s\n' 'Image build failed; stop before starting services.'
@@ -126,7 +157,7 @@ fi
 2. 启用一个来源，页面手动发布抓取。Crawlab看原生Task日志／退出，M05来源摘要和端点数变化应一致；区分合法0产出与失败。
 3. 手动发布少量测试。查看目标样本／分数和反馈时间；同一代理对另一目标独立计分。失败访问应有失败样本，Worker执行异常不能伪造访问失败。
 4. 达到候选门槛后获取代理，实际使用并回传统一反馈；验证获取不写评分、反馈才计分。尚无高分代理返回NO_PROXY_AVAILABLE属于正常冷启动。
-5. 查看CPU、RSS、写队列／提交、实际完成速度和数据／平台卷增长；确认发布预算不持续超过单槽Worker吞吐。根据设备改参数，不把本地毫秒结果当服务器保证。
+5. 查看CPU、RSS、写队列／提交、实际完成速度和数据／平台卷增长（先观察30—60分钟）；确认发布预算不持续超过单槽Worker吞吐。根据设备改参数，不把本地毫秒结果当服务器保证。
 6. 通过后将publishing_enabled=true，按第4步的force-recreate加载。抓取默认每小时、测试每分钟有限发布；不是等待全部结束后立刻无限下一轮。
 
 此处使用正式业务数据，不自动创建可遗忘的临时PoC。若添加了临时目标／来源，验收后通过页面删除或停用；不删除原平台smoke或其他业务对象。详细执行阶段和输出按progress.md记录。

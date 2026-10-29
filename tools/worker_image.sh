@@ -3,6 +3,7 @@
 set -eu
 repo_path="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 action="${1:-check}"
+if [ "$#" -gt 0 ]; then shift; fi
 case "$action" in check|build|start|rollback) ;; *) echo 'Use check, build, start or rollback' >&2; exit 2 ;; esac
 base=/srv/apps/crawlab/compose.yaml
 lan=/srv/apps/crawlab/compose.override.yaml
@@ -18,6 +19,6 @@ docker_args=(compose --env-file "$env_file" -f "$base" -f "$lan" -f "$repo_path/
 docker "${docker_args[@]}" config -q
 case "$action" in
   check) echo 'Worker merge syntax accepted by the server Compose version' ;;
-  build) docker "${docker_args[@]}" build worker ;;
+  build) docker "${docker_args[@]}" build "$@" worker ;;
   start) docker "${docker_args[@]}" up -d --no-deps --no-build --wait --wait-timeout 180 worker ;;
 esac
