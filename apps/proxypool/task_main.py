@@ -7,10 +7,12 @@ import json
 import os
 from pathlib import Path
 import ssl
+import sys
 import time
 import aiohttp
-from .service.config import secret
-from .service.models import Feedback, SourceResult
+from .contracts import Feedback, SourceResult
+from .task_settings import TaskSettings
+from .task_batches import callback_chunks
 
 
 async def post_committed(base_url, key, path, payload, job):
@@ -31,9 +33,13 @@ async def post_committed(base_url, key, path, payload, job):
                     allow_redirects=False,
                 ) as response:
                     if response.status == 429 or response.status >= 500:
-                        raise aiohttp.ClientConnectionError("Temporary callback failure")
+                        raise aiohttp.ClientConnectionError(
+                            "Temporary callback failure"
+                        )
                     if response.status != 200:
-                        raise ValueError("Callback rejected HTTP " + str(response.status))
+                        raise ValueError(
+                            "Callback rejected HTTP " + str(response.status)
+                        )
                     raw = await response.content.read(65537)
                     if len(raw) > 65536:
                         raise ValueError("Callback response too large")
@@ -44,49 +50,55 @@ async def post_committed(base_url, key, path, payload, job):
             except (aiohttp.ClientError, asyncio.TimeoutError) as caught:
                 error = caught
                 if attempt + 1 < int(job["retry_attempts"]):
-                    await asyncio.sleep(min(2**attempt, max(0, deadline - time.monotonic())))
+                    await asyncio.sleep(
+                        min(2**attempt, max(0, deadline - time.monotonic()))
+                    )
     raise RuntimeError("Callback retries exhausted") from error
 
 
-async def report_tests(job, base_url, key):
+async def report_tests(job, base_url, key, options=None):
     from .tester.execute import test_proxies
 
-    config_path = os.getenv("PROXYPOOL_WORKER_SETTINGS")
-    options = json.loads(Path(config_path).read_text(encoding="utf-8")) if config_path else {}
+    options = options or {}
+    job = dict(
+        job,
+        concurrency=min(
+            int(job["concurrency"]), int(options.get("max_concurrency", 20))
+        ),
+    )
     context = ssl.create_default_context(cafile=options.get("ca_file"))
-    records = await test_proxies(job, headers=options.get("request_headers"), ssl_context=context)
+    records = await test_proxies(
+        job, headers=options.get("request_headers"), ssl_context=context
+    )
     for item in records:
         Feedback.model_validate(item)
-    size = int(job["max_request_records"])
-    for start in range(0, len(records), size):
-        await post_committed(
-            base_url, key, "/v1/proxies/feedback", {"results": records[start : start + size]}, job
-        )
+    for payload in callback_chunks(
+        records, lambda chunk, part: {"results": chunk}, job
+    ):
+        await post_committed(base_url, key, "/v1/proxies/feedback", payload, job)
     return len(records)
 
 
 async def report_source(job, summary, base_url, key, task_id):
     records = summary.pop("proxies")
-    size = int(job["max_request_records"])
-    if len(records) <= size:
-        payload = dict(
-            summary, task_id=task_id, proxies=records, part=0, final=True, output_count=len(records)
-        )
-        SourceResult.model_validate(payload)
-        return await post_committed(base_url, key, "/v1/source-results", payload, job)
     inserted = 0
-    chunks = [records[i : i + size] for i in range(0, len(records), size)] or [[]]
-    for part, chunk in enumerate(chunks):
-        # The last summary-only package makes its total inserted count accurate.
-        payload = dict(summary, task_id=task_id, proxies=chunk, part=part, final=False)
+    part_count = 0
+    for payload in callback_chunks(
+        records,
+        lambda chunk, part: dict(
+            summary, task_id=task_id, proxies=chunk, part=part, final=False
+        ),
+        job,
+    ):
         SourceResult.model_validate(payload)
         ack = await post_committed(base_url, key, "/v1/source-results", payload, job)
         inserted += ack.get("inserted", 0)
+        part_count += 1
     final = dict(
         summary,
         task_id=task_id,
         proxies=[],
-        part=len(chunks),
+        part=part_count,
         final=True,
         output_count=len(records),
         total_inserted=inserted,
@@ -105,23 +117,60 @@ def decode_job(encoded):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--job", required=True)
+    parser.add_argument("--job")
+    parser.add_argument(
+        "--settings", help="Node-private task settings JSON; never synced with source"
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check delivered code and runtime without network",
+    )
     options = parser.parse_args()
+    if options.check:
+        from importlib import import_module, metadata
+        from .crawler.registry import SOURCES
+
+        for entry in SOURCES.values():
+            module, _ = entry["entry"].split(":")
+            import_module(module)
+        import_module("apps.proxypool.tester.execute")
+        settings = TaskSettings.load(options.settings) if options.settings else None
+        print(
+            json.dumps(
+                {
+                    "runtime_check": "PASS",
+                    "python": sys.version.split()[0],
+                    "dependencies": {
+                        name: metadata.version(name)
+                        for name in ("aiohttp", "pydantic", "Scrapy")
+                    },
+                    "settings_configured": settings is not None,
+                }
+            ),
+            flush=True,
+        )
+        return 0
+    if not options.job:
+        parser.error("--job is required unless --check is used")
     job = decode_job(options.job)
-    base_url = os.environ["PROXYPOOL_M05_URL"]
-    key = secret("PROXYPOOL_API_KEY")
-    if not key:
-        raise ValueError("Worker API key is not configured")
+    settings = TaskSettings.load(options.settings)
+    base_url, key = settings.m05_url, settings.api_key
     try:
         if job["kind"] == "test":
-            count = asyncio.run(report_tests(job, base_url, key))
-            print(json.dumps({"kind": "test", "reported": count, "committed": True}), flush=True)
+            count = asyncio.run(
+                report_tests(job, base_url, key, settings.execution_options())
+            )
+            print(
+                json.dumps({"kind": "test", "reported": count, "committed": True}),
+                flush=True,
+            )
             return 0
         start = time.monotonic()
         try:
             from .crawler.execute import capture
 
-            summary = capture(job)
+            summary = capture(job, program_root=Path(__file__).resolve().parents[2])
         except Exception:
             summary = {
                 "source_id": job["source"]["source_id"],
@@ -137,10 +186,15 @@ def main():
         if not task_id:
             raise ValueError("Crawlab did not supply CRAWLAB_TASK_ID")
         asyncio.run(report_source(job, summary, base_url, key, task_id))
-        print(json.dumps({"kind": "capture", "committed": True, "failed": failed}), flush=True)
+        print(
+            json.dumps({"kind": "capture", "committed": True, "failed": failed}),
+            flush=True,
+        )
         return 1 if failed else 0
     except Exception as error:
-        print(json.dumps({"error": type(error).__name__, "committed": False}), flush=True)
+        print(
+            json.dumps({"error": type(error).__name__, "committed": False}), flush=True
+        )
         return 1
 
 

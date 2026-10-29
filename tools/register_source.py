@@ -24,7 +24,9 @@ def native_client(base_url, token):
 
     def call(method, path, payload=None):
         headers = {"Authorization": token, "Accept": "application/json"}
-        body = None if payload is None else json.dumps(payload, ensure_ascii=True).encode()
+        body = (
+            None if payload is None else json.dumps(payload, ensure_ascii=True).encode()
+        )
         if body is not None:
             headers["Content-Type"] = "application/json"
         connection = (
@@ -35,7 +37,9 @@ def native_client(base_url, token):
                 context=ssl.create_default_context(),
             )
             if parsed.scheme == "https"
-            else http.client.HTTPConnection(parsed.hostname, parsed.port or 80, timeout=15)
+            else http.client.HTTPConnection(
+                parsed.hostname, parsed.port or 80, timeout=15
+            )
         )
         try:
             connection.request(
@@ -66,50 +70,47 @@ def validate_source(path):
         for node in tree.body
         if isinstance(node, ast.ClassDef)
         and node.name == "ProxySourceSpider"
-        and any(isinstance(base, ast.Name) and base.id == "SourceSpider" for base in node.bases)
+        and any(
+            isinstance(base, ast.Name) and base.id == "SourceSpider"
+            for base in node.bases
+        )
     ]
     if len(matching) != 1:
         raise ValueError("Define one ProxySourceSpider(SourceSpider) class")
     return content
 
 
-def register_source(call, registry, source, *, key, name, url):
+def register_source(call, registry, source, *, capture_spider_id, key, name, url):
     if not re.fullmatch("[a-z0-9_]{1,64}", key):
         raise ValueError("Invalid source key")
     if not name or len(name) > 80 or urlsplit(url).scheme not in ("http", "https"):
         raise ValueError("Invalid source metadata")
     content = validate_source(source)
     registry = Path(registry)
-    current = json.loads(registry.read_text(encoding="utf-8")) if registry.exists() else {}
+    current = (
+        json.loads(registry.read_text(encoding="utf-8")) if registry.exists() else {}
+    )
     if not isinstance(current, dict) or len(current) > 64:
         raise ValueError("Invalid registry")
     entry = current.get(key)
     if entry is None and len(current) >= 64:
         raise ValueError("Source registry limit reached")
-    if entry:
-        identifier = entry["spider_id"]
-    else:
-        spider = call(
-            "POST",
-            "spiders",
-            {
-                "name": "proxypool-source-" + key,
-                "description": "server-craw-cluster/proxypool",
-                "col_name": "proxypool_source_" + key,
-                "type": "customized",
-                "cmd": "python -B -u proxypool_task.py",
-            },
-        )
-        identifier = spider["_id"]
+    identifier = capture_spider_id
     if not re.fullmatch("[0-9a-f]{24}", identifier):
-        raise ValueError("Unexpected native program ID")
-    bootstrap = (ROOT / "deploy/proxypool/proxypool_task.py").read_text(encoding="utf-8")
-    for filename, data in [("proxypool_task.py", bootstrap), ("source_spider.py", content)]:
-        route = "spiders/" + identifier + "/files/"
-        call("POST", route + "save", {"path": "/" + filename, "data": data})
-        if call("GET", route + "get?path=/" + filename) != data:
-            raise ValueError("Registered source round-trip failed")
-    current[key] = {"name": name, "spider_id": identifier, "example_url": url}
+        raise ValueError("Expected the registered capture program ID")
+    program = call("GET", "spiders/" + identifier)
+    if (
+        not isinstance(program, dict)
+        or program.get("description") != "server-craw-cluster/proxypool"
+        or program.get("name") != "proxypool-capture"
+    ):
+        raise ValueError("Capture program is not owned by this Proxypool registration")
+    filename = "sources/" + key + ".py"
+    route = "spiders/" + identifier + "/files/"
+    call("POST", route + "save", {"path": "/" + filename, "data": content})
+    if call("GET", route + "get?path=/" + filename) != content:
+        raise ValueError("Registered source round-trip failed")
+    current[key] = {"name": name, "example_url": url}
     if len(current) > 64:
         raise ValueError("Source registry limit reached")
     # Preserve the inode for the existing read-only bind mount. No server imports.
@@ -123,6 +124,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--crawlab-url", required=True)
     parser.add_argument("--env-file", type=Path, required=True)
+    parser.add_argument("--capture-spider-id", required=True)
     parser.add_argument("--registry", type=Path, required=True)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--key", required=True)
@@ -141,6 +143,7 @@ def main():
         native_client(args.crawlab_url, token),
         args.registry,
         args.source,
+        capture_spider_id=args.capture_spider_id,
         key=args.key,
         name=args.name,
         url=args.url,

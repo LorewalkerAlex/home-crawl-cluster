@@ -2,7 +2,7 @@
 
 from urllib.parse import urlsplit
 import scrapy
-from ...service.models import Endpoint
+from ...contracts import Endpoint
 
 
 def endpoint_line(line):

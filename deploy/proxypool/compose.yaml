@@ -51,8 +51,3 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
-    networks: [crawlab]
-networks:
-  crawlab:
-    external: true
-    name: ${CRAWLAB_NETWORK:-crawlab_default}

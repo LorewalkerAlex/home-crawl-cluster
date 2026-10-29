@@ -1,4 +1,4 @@
-"""User-run once: register two programs and sync their small bootstrap file."""
+"""User-run once: register two source-only programs and verify their complete files."""
 
 import argparse
 import json
@@ -8,13 +8,14 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from apps.proxypool.service.config import Settings, secret
+from apps.proxypool.service.config import Settings, secret  # noqa: E402 - direct script entry resolves its repository root
+from integrations.crawlab.program import sync_program, program_command  # noqa: E402 - direct script entry resolves its repository root
 
 
-def register(base_url, token, *, transport=None):
+def register(base_url, token, *, python="python", settings_file=None, transport=None):
     if not token:
         raise ValueError("Set CRAWLAB_API_TOKEN or its _FILE")
-    content = (ROOT / "deploy/proxypool/proxypool_task.py").read_text(encoding="utf-8")
+    command = program_command(python, settings_file)
     with httpx.Client(
         base_url=base_url.rstrip("/") + "/",
         headers={"Authorization": token},
@@ -48,7 +49,9 @@ def register(base_url, token, *, transport=None):
             name = "proxypool-" + kind
             matches = [x for x in existing if x.get("name") == name]
             if len(matches) > 1:
-                raise ValueError("Duplicate Proxypool program names; select IDs in Crawlab")
+                raise ValueError(
+                    "Duplicate Proxypool program names; select IDs in Crawlab"
+                )
             if matches:
                 spider = matches[0]
                 if spider.get("description") != "server-craw-cluster/proxypool":
@@ -62,24 +65,44 @@ def register(base_url, token, *, transport=None):
                         "description": "server-craw-cluster/proxypool",
                         "col_name": name.replace("-", "_"),
                         "type": "customized",
-                        "cmd": "python -B -u proxypool_task.py",
+                        "cmd": command,
                     },
                 )
             identifier = spider["_id"]
-            route = "spiders/" + identifier + "/files/"
-            call("POST", route + "save", {"path": "/proxypool_task.py", "data": content})
-            if call("GET", route + "get?path=/proxypool_task.py") != content:
-                raise ValueError("Bootstrap source verification failed")
-            result["capture_spider_id" if kind == "capture" else "tester_spider_id"] = identifier
+            if spider.get("cmd") != command:
+                # Native PUT saves the whole document; retain existing program fields.
+                current = call("GET", "spiders/" + identifier)
+                current["cmd"] = command
+                call("PUT", "spiders/" + identifier, current)
+            sync_program(call, identifier)
+            result["capture_spider_id" if kind == "capture" else "tester_spider_id"] = (
+                identifier
+            )
         return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
+    parser.add_argument(
+        "--python", default="python", help="Interpreter available on generic nodes"
+    )
+    parser.add_argument(
+        "--settings-file", help="Node-private JSON path, never source-synced"
+    )
     args = parser.parse_args()
     settings = Settings.load(args.config)
-    print(json.dumps(register(settings.crawlab_url, secret("CRAWLAB_API_TOKEN")), indent=2))
+    print(
+        json.dumps(
+            register(
+                settings.crawlab_url,
+                secret("CRAWLAB_API_TOKEN"),
+                python=args.python,
+                settings_file=args.settings_file,
+            ),
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

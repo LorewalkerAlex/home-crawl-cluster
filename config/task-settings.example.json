@@ -1,0 +1,6 @@
+{
+  "m05_url": "https://proxypool.example.invalid:4129",
+  "api_key": "replace-with-private-shared-api-key",
+  "max_concurrency": 20,
+  "request_headers": {"User-Agent": "Proxypool/1.0"}
+}

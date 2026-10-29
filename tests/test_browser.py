@@ -36,13 +36,29 @@ def test_single_page_browser_workflow(tmp_path):
             page.route(
                 "**/*",
                 lambda route: (
-                    route.continue_() if route.request.url.startswith(url) else route.abort()
+                    route.continue_()
+                    if route.request.url.startswith(url)
+                    else route.abort()
                 ),
+            )
+            responses = []
+            page.on(
+                "response",
+                lambda response: responses.append((response.status, response.url)),
             )
             page.goto(url)
             page.locator("#apiKey").fill(KEY)
             page.get_by_role("button", name="连接", exact=True).click()
-            expect(page.locator("#poolCount")).to_have_text("0 / 100,000")
+            try:
+                expect(page.locator("#poolCount")).to_have_text("0 / 100,000")
+            except AssertionError:
+                raise AssertionError(
+                    {
+                        "errors": errors,
+                        "notice": page.locator("#notice").inner_text(),
+                        "responses": responses,
+                    }
+                ) from None
             expect(page.locator("#test")).to_be_disabled()
             page.get_by_role("button", name="添加网址", exact=True).click()
             dialog = page.locator("#targetDialog")
@@ -50,10 +66,14 @@ def test_single_page_browser_workflow(tmp_path):
             dialog.locator("[name=test_url]").fill("https://example.invalid/check")
             dialog.get_by_role("button", name="保存", exact=True).click()
             expect(dialog).not_to_be_visible()
-            expect(page.locator("#targetsBody")).to_contain_text("Local target <script>")
+            expect(page.locator("#targetsBody")).to_contain_text(
+                "Local target <script>"
+            )
             client.post(
                 "/v1/proxies/import",
-                json={"proxies": [{"scheme": "http", "host": "192.0.2.1", "port": 8080}]},
+                json={
+                    "proxies": [{"scheme": "http", "host": "192.0.2.1", "port": 8080}]
+                },
             )
             records = [
                 {
@@ -67,7 +87,12 @@ def test_single_page_browser_workflow(tmp_path):
                 }
                 for _ in range(63)
             ]
-            assert client.post("/v1/proxies/feedback", json={"results": records}).status_code == 200
+            assert (
+                client.post(
+                    "/v1/proxies/feedback", json={"results": records}
+                ).status_code
+                == 200
+            )
             page.locator("#refresh").click()
             expect(page.locator("#poolCount")).to_have_text("1 / 100,000")
             page.get_by_role("button", name="高分代理", exact=True).click()

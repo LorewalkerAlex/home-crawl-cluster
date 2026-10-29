@@ -26,6 +26,9 @@ class FakeCrawlab:
         self.jobs = []
         self.fail = False
 
+    async def outstanding(self, spider_ids):
+        return 0
+
     async def run_job(self, spider, job):
         self.jobs.append((spider, job))
         if self.fail:

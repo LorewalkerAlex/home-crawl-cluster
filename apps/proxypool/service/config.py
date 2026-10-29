@@ -50,7 +50,7 @@ class Settings:
     crawlab_ui_url: str = ""
     capture_spider_id: str = ""
     tester_spider_id: str = ""
-    worker_node_ids: tuple = ()
+    native_task_limit: int = 8
     worker_concurrency: int = 20
     request_timeout_seconds: float = 10
     source_timeout_seconds: float = 120
@@ -61,7 +61,10 @@ class Settings:
     def __post_init__(self):
         if type(self.publishing_enabled) is not bool:
             raise ValueError("publishing_enabled must be a JSON boolean")
-        if self.crawlab_ui_url and urlsplit(self.crawlab_ui_url).scheme not in ("http", "https"):
+        if self.crawlab_ui_url and urlsplit(self.crawlab_ui_url).scheme not in (
+            "http",
+            "https",
+        ):
             raise ValueError("Crawlab UI URL must be HTTP(S)")
         integers = [
             "port",
@@ -79,6 +82,7 @@ class Settings:
             "max_sources",
             "test_batch_size",
             "test_max_batches_per_tick",
+            "native_task_limit",
             "worker_concurrency",
             "retry_attempts",
             "source_max_records",
@@ -110,14 +114,23 @@ class Settings:
             raise ValueError("Invalid window or EWMA coefficient")
         if not 0 <= self.candidate_min_score <= 100 or not 1 <= self.port <= 65535:
             raise ValueError("Invalid score or port")
-        if not self.max_request_records <= self.write_batch_records <= self.queue_max_records:
-            raise ValueError("Require request records <= batch records <= queue records")
+        if (
+            not self.max_request_records
+            <= self.write_batch_records
+            <= self.queue_max_records
+        ):
+            raise ValueError(
+                "Require request records <= batch records <= queue records"
+            )
         if (
             self.test_batch_size > self.max_request_records
             or self.candidate_count > self.max_request_records
         ):
             raise ValueError("Batch or candidates exceed request limit")
-        if type(self.eviction_min_feedback) is not int or self.eviction_min_feedback < 0:
+        if (
+            type(self.eviction_min_feedback) is not int
+            or self.eviction_min_feedback < 0
+        ):
             raise ValueError("Invalid eviction threshold")
 
     @classmethod
@@ -126,6 +139,4 @@ class Settings:
         data = {} if not path else json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(data, dict) or set(data) - {f.name for f in fields(cls)}:
             raise ValueError("Unknown configuration fields")
-        if "worker_node_ids" in data:
-            data["worker_node_ids"] = tuple(data["worker_node_ids"])
         return cls(**data)

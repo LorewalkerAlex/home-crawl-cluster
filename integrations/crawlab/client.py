@@ -11,10 +11,15 @@ class PublishUncertain(RuntimeError):
     pass
 
 
+MAX_JOB_BYTES = 45000
+
+
 def encode_job(job):
-    raw = json.dumps(job, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
-    if len(raw) > 45000:
-        raise ValueError("Task input exceeds 45 KiB; reduce test_batch_size")
+    raw = json.dumps(
+        job, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    ).encode()
+    if len(raw) > MAX_JOB_BYTES:
+        raise ValueError("Task input exceeds 45000 bytes; reduce batch size")
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
@@ -25,7 +30,7 @@ def object_id(value):
 
 
 class CrawlabClient:
-    def __init__(self, base_url, token, node_ids, *, transport=None):
+    def __init__(self, base_url, token, *, transport=None):
         parsed = urlsplit(base_url)
         if (
             parsed.scheme not in ("http", "https")
@@ -35,10 +40,8 @@ class CrawlabClient:
             or parsed.query
         ):
             raise ValueError("Invalid Crawlab API base URL")
-        if not token or not node_ids:
-            raise ValueError("Crawlab token and selected Worker IDs required")
-        self.nodes = [object_id(value) for value in node_ids]
-        self.position = 0
+        if not token:
+            raise ValueError("Crawlab token required")
         self.http = httpx.AsyncClient(
             base_url=base_url.rstrip("/") + "/",
             headers={"Authorization": token},
@@ -52,12 +55,10 @@ class CrawlabClient:
         object_id(spider_id)
         payload = {
             "spider_id": spider_id,
-            "mode": "selected-nodes",
-            "node_ids": [self.nodes[self.position % len(self.nodes)]],
-            "cmd": "python -B -u proxypool_task.py",
+            # One unbound task; the platform assigns a ready execution node.
+            "mode": "random",
             "param": "--job " + encode_job(job),
         }
-        self.position += 1
         try:
             response = await self.http.post("tasks/run", json=payload)
             response.raise_for_status()
@@ -79,3 +80,30 @@ class CrawlabClient:
 
     async def close(self):
         await self.http.aclose()
+
+    async def outstanding(self, spider_ids):
+        """Read native queue state; no parallel business task ledger."""
+        identifiers = list(dict.fromkeys(object_id(value) for value in spider_ids))
+        conditions = [
+            {"key": "spider_id", "op": "in", "value": identifiers},
+            {"key": "status", "op": "in", "value": ["pending", "running"]},
+        ]
+        response = await self.http.get(
+            "tasks",
+            params={
+                "page": 1,
+                "size": 1,
+                "conditions": json.dumps(conditions, separators=(",", ":")),
+            },
+        )
+        response.raise_for_status()
+        value = response.json()
+        total = value.get("total")
+        if (
+            value.get("error")
+            or value.get("status") == "error"
+            or type(total) is not int
+            or total < 0
+        ):
+            raise ValueError("Invalid native task count")
+        return total

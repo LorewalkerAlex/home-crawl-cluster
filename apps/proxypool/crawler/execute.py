@@ -7,13 +7,18 @@ import time
 from scrapy import signals
 from scrapy.crawler import CrawlerProcess
 from .registry import SOURCES
-from ..service.models import Endpoint
+from ..contracts import Endpoint
 
 
-def capture(job):
+def capture(job, *, program_root=None):
     source = job["source"]
     if job.get("workspace_spider"):
-        path = Path.cwd() / "source_spider.py"
+        import re
+
+        key = source["spider_key"]
+        if not re.fullmatch(r"[a-z0-9_]{1,64}", key):
+            raise ValueError("Invalid registered source key")
+        path = Path(program_root or Path.cwd()) / "sources" / (key + ".py")
         spec = importlib.util.spec_from_file_location("registered_proxy_source", path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -80,7 +85,8 @@ def capture(job):
     failed = sum(
         value
         for key, value in stats.items()
-        if key.startswith("downloader/response_status_count/") and int(key.rsplit("/", 1)[1]) >= 400
+        if key.startswith("downloader/response_status_count/")
+        and int(key.rsplit("/", 1)[1]) >= 400
     ) + int(stats.get("downloader/exception_count", 0))
     reason = stats.get("finish_reason", "unknown")
     good = bool(ok) and not failed and not errors and reason == "finished"
@@ -91,5 +97,7 @@ def capture(job):
         "duration_ms": round((time.monotonic() - start) * 1000, 3),
         "pages_ok": ok,
         "pages_failed": failed,
-        "error_code": None if good else ("parse_error" if errors else "capture_incomplete"),
+        "error_code": None
+        if good
+        else ("parse_error" if errors else "capture_incomplete"),
     }

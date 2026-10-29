@@ -37,8 +37,7 @@ def load_entries(filename=""):
         if (
             not re.fullmatch("[a-z0-9_]{1,64}", key)
             or not isinstance(value, dict)
-            or set(value) != {"name", "spider_id", "example_url"}
-            or not re.fullmatch("[0-9a-f]{24}", value["spider_id"])
+            or set(value) != {"name", "example_url"}
         ):
             raise ValueError("Invalid registered source entry")
         entries[key] = dict(value, workspace_spider=True)

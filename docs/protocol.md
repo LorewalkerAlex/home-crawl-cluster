@@ -1,6 +1,6 @@
 # 当前业务协议 v1
 
-2026-10-29，以 `service/models.py`、`service/app.py` 和 `worker.py` 为实现依据。HTTP JSON、字段snake_case；未知字段拒绝。下述不是Crawlab官方插件协议，Crawlab原生任务仍负责执行状态。
+2026-10-29，以 `contracts.py`、`service/app.py` 和 `task_main.py` 为实现依据。HTTP JSON、字段snake_case；未知字段拒绝。下述不是Crawlab官方插件协议，Crawlab原生任务仍负责执行状态。
 
 M05所有`/v1/`请求用`Authorization: Bearer <PROXYPOOL_API_KEY>`；密钥至少16字符。`/healthz`和静态页面不需要密钥，业务数据需要。Crawlab原生API则是`Authorization: <CRAWLAB_API_TOKEN>`，两者不要混用。跨设备使用可信HTTPS，不忽略证书校验。当前为个人单一共享业务密钥，不建设用户体系。
 
@@ -44,7 +44,7 @@ outcome：response需http_status和latency_ms（非负有限毫秒）；request_
 
 ## 来源结果
 
-普通小批一次回传：
+HTTP允许普通小批一次回传；当前任务程序统一分part写入并以空包汇总：
 
 ```json
 {"source_id":1,"task_id":"000000000000000000000001","outcome":"success","proxies":[{"scheme":"http","host":"192.0.2.10","port":8080}],"duration_ms":300.0,"pages_ok":1,"pages_failed":0,"final":true,"part":0,"output_count":1}
@@ -56,11 +56,12 @@ M05以最后收到的完整结果更新该来源最近健康及Task ID；不保�
 
 ## Crawlab任务与Worker
 
-预注册Crawlab程序，命令固定`python -B -u proxypool_task.py`，调用`POST /api/tasks/run`传spider_id、selected-nodes模式及本次`--job <urlsafe-base64-json>`参数。每任务仅选一个启用Worker，避免原生selected-nodes多选广播；多节点列表由客户端轮换选择。参数最大约45KiB原始JSON，不拼接网址进Shell。
+预注册两个Crawlab程序，同步完整源码与requirements.txt，命令为`<节点解释器> -B -u proxypool_task.py [--settings <节点私有JSON>]`。调用`POST /api/tasks/run`只传spider_id、mode=random及本次`--job <urlsafe-base64-json>`，不覆盖程序命令、不传node_ids；平台分配一个节点。参数原始JSON最多45000字节，M04同时按成员数及编码字节拆块。发布前以原生tasks列表conditions查询两个程序pending／running的total，达到native_task_limit时跳过，查询失败不发布；只限制本业务，不控制其他爬虫。该计数是单发布实例的背压，不是平台原子全局配额。
 
-test输入含kind、target快照（target_id/revision/test_url等）、proxies端点列表、concurrency、request_timeout_seconds、retry_attempts、retry_window_seconds、max_request_records。capture输入含source（source_id/spider_key/url）、来源页／条／超时上限及workspace_spider。Base64只是安全传参，不是加密；**URL不得带凭据，Token／真实请求头不进入任务参数**。
+test输入含kind、target快照（target_id/revision/test_url等）、proxies端点列表、concurrency、request_timeout_seconds、retry_attempts、retry_window_seconds、max_request_records、max_request_bytes。capture输入含source（source_id/spider_key/url）、来源页／条／超时上限及workspace_spider。Base64只是安全传参，不是加密；**URL不得带凭据，Token／真实请求头不进入任务参数**。
 
-Worker环境：PROXYPOOL_M05_URL、PROXYPOOL_API_KEY或_FILE、PROXYPOOL_WORKER_SETTINGS私有JSON路径；Crawlab注入CRAWLAB_TASK_ID。私有JSON可配request_headers及ca_file。通用bootstrap进入独立venv执行包，不升级原Crawlab Python/SDK。
+节点私有配置见[任务环境](../deploy/crawlab/task-runtime.md)：JSON可含m05_url、api_key、request_headers、ca_file、max_concurrency，地址和密钥也可通过任务环境变量提供。Crawlab注入CRAWLAB_TASK_ID。不把私有配置作为同步源码；任务并发取发布参数与节点max_concurrency的较小值。源码在当前任务目录导入，不依赖固定/opt路径或预装业务包。
+
 
 请求测试每成员一次，响应后释放连接，只读取响应头判断状态和耗时；不下载完整目标内容。HTTP跳转按aiohttp默认规则处理，计最终响应。callback仅在网络错误／429／5xx时原包有限重试，默认3次、总窗口60秒；超过后任务失败，不在Worker重新测试该代理，下次M04按双时间再选择。
 

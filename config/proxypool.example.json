@@ -33,11 +33,11 @@
   "crawlab_ui_url": "",
   "capture_spider_id": "",
   "tester_spider_id": "",
-  "worker_node_ids": [],
   "worker_concurrency": 20,
   "request_timeout_seconds": 10,
   "source_timeout_seconds": 120,
   "source_max_records": 10000,
   "source_max_pages": 50,
-  "retry_attempts": 3
+  "retry_attempts": 3,
+  "native_task_limit": 8
 }

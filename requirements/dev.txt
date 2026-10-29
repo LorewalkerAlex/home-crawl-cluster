@@ -1,6 +1,6 @@
 # Exact dependency closure, resolved 2026-10-29 for Development/test CPython 3.13.
 -r service.txt
--r worker.txt
+-r tasks.txt
 anyio==4.15.1
 colorama==0.4.6
 greenlet==3.5.6

@@ -8,7 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.register_source import validate_source
-from apps.proxypool.service.models import Endpoint
+from apps.proxypool.contracts import Endpoint
 from scrapy.http import HtmlResponse
 from scrapy import Request
 
@@ -20,7 +20,9 @@ def main():
     parser.add_argument("--url", default="https://example.invalid/list")
     args = parser.parse_args()
     validate_source(args.source)
-    spec = importlib.util.spec_from_file_location("reviewed_source_fixture", args.source)
+    spec = importlib.util.spec_from_file_location(
+        "reviewed_source_fixture", args.source
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     spider = module.ProxySourceSpider(source_url=args.url)
@@ -32,7 +34,9 @@ def main():
         else:
             Endpoint.model_validate(item)
             proxies += 1
-    print({"valid_proxies": proxies, "followup_requests": requests, "network_requests": 0})
+    print(
+        {"valid_proxies": proxies, "followup_requests": requests, "network_requests": 0}
+    )
 
 
 if __name__ == "__main__":

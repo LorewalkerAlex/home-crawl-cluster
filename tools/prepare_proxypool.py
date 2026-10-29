@@ -26,7 +26,10 @@ def prepare(root=Path("/"), *, apply=False):
             if parent.is_symlink():
                 raise ValueError("Refusing symlinked preparation path")
     if not apply:
-        return {"prepared": False, "directories": [str(x) for x in (app, private, data)]}
+        return {
+            "prepared": False,
+            "directories": [str(x) for x in (app, private, data)],
+        }
     if os.name == "posix" and root == Path("/") and os.geteuid() != 0:
         raise PermissionError("Run preparation with sudo")
     for destination in (app, private, data):
@@ -51,25 +54,13 @@ def prepare(root=Path("/"), *, apply=False):
         Settings(
             database="/data/proxypool.sqlite3",
             host="0.0.0.0",
-            crawlab_url="http://master:8080/api",
             source_registry_file="/config/source-registry.json",
         )
     )
     files = {
         env: ("PROXYPOOL_API_KEY=" + key + "\nCRAWLAB_API_TOKEN=\n", 0o600),
-        private / "worker.env": (
-            "PROXYPOOL_API_KEY="
-            + key
-            + "\nPROXYPOOL_M05_URL=https://proxypool.example.invalid:4129\nPROXYPOOL_WORKER_SETTINGS=/config/worker.json\n",
-            0o600,
-        ),
         app / "config.json": (json.dumps(config, indent=2) + "\n", 0o644),
         app / "source-registry.json": ("{}\n", 0o644),
-        private / "worker.json": (
-            json.dumps({"request_headers": {"User-Agent": "Proxypool/1.0"}}, indent=2) + "\n",
-            0o600,
-        ),
-        app / "compose.env": ("PROXYPOOL_REPO=" + str(ROOT) + "\n", 0o644),
     }
     created = []
     for path, (content, mode) in files.items():
@@ -83,7 +74,7 @@ def prepare(root=Path("/"), *, apply=False):
         "prepared": True,
         "created": created,
         "secrets_printed": False,
-        "next": "Configure worker.env callback URL, app.env Crawlab token and config.json node/program IDs; do not start automatic publishing yet.",
+        "next": "Configure app.env Crawlab token and config.json API URL/program IDs. Generic node runtime and private callback settings belong to Crawlab administration. Keep automatic publishing off.",
     }
 
 

@@ -9,7 +9,7 @@ RUN python -m pip install --no-cache-dir --only-binary=:all: --index-url https:/
 COPY apps ./apps
 COPY integrations ./integrations
 COPY tools ./tools
-COPY deploy/proxypool/proxypool_task.py ./deploy/proxypool/proxypool_task.py
+COPY requirements/tasks.txt ./requirements/tasks.txt
 USER 10001:10001
 EXPOSE 13004
 CMD ["python", "-B", "-m", "apps.proxypool.service.main", "--config", "/config/config.json"]

@@ -8,13 +8,13 @@ Python3.13.14、SQLite3.53.1，任务专用venv。`tools/check_local.py --node <
 
 - 63位窗口／Wilson／成功EWMA、跨目标质量、目标revision、双时间选测、轮前快照淘汰。
 - 真正提交／回滚、短期纯内存去重、全重复不启动事务、队列上限及写事务期间继续入队／快照读取。
-- 固定周期短发布、单节点原生参数、原生接口替身、配置准备幂等／秘密不输出、构建所需文件齐全、3.10语法兼容检查。
-- 真实回环HTTP代理和CONNECT可信HTTPS、超时／非200、实际Worker子进程与Scrapy正常重定向＋两页执行、直接HTTP回调并回读SQLite。
+- 固定周期短发布、random模式不固定节点的原生参数及pending/running背压、原生接口替身、配置准备幂等／秘密不输出、构建所需文件齐全、3.10语法兼容检查。
+- 真实回环HTTP代理和CONNECT可信HTTPS、超时／非200、完整源码从独立工作区执行（Python -I、移除PYTHONPATH，不借用仓库源码），及Scrapy正常重定向＋两页执行、直接HTTP回调并回读SQLite。
 - 已提交但ACK丢失后同ID回调重传：目标请求没有重试，评分没有增加第二次。
 - 来源执行失败摘要、显式注册工作区脚本、M05同进程读取新注册入口，无需重启。
 - 已安装Edge实际单页交互：密钥、目标管理、字面脚本文本转义、63次反馈显示94.25分、启停、来源添加和页面截图；不下载浏览器。
 
-最终完整检查：133项测试＋57个子测试（JUnit共190项），0失败、0错误、0跳过，无资源泄漏警告；旧PoC回归与新业务测试一起通过。原始JUnit及页面截图仅保留`.local/check-results/`，不提交Git。缺少Node或已安装浏览器时对应检查可跳过，因此应报告实际skip，不能只报命令退出0。
+2026-10-29修正后最终完整检查：137项测试＋57个子测试（JUnit共194项），0失败、0错误、0跳过，无资源泄漏警告。137项中当前业务31项、历史回归106项，子测试属于历史回归，不混称全部为新业务验收。新增独立程序--check、原生排队查询、大任务拆块、回调JSON字节上限检查；6项真实回环集成直接运行交付文件。首轮浏览器统计等待失败，补充页面／响应诊断后隔离复测与最终全套回归均通过，没有据此更改业务逻辑。原始JUnit及页面截图仅保留`.local/check-results/`，不提交Git。缺少Node或已安装浏览器时对应检查可跳过，因此应报告实际skip，不能只报命令退出0。
 
 ## 实际业务布局测量
 
@@ -34,11 +34,12 @@ Python3.13.14、SQLite3.53.1，任务专用venv。`tools/check_local.py --node <
 
 ## 依赖与部署资产
 
-API锁定FastAPI／uvicorn／httpx／Pydantic；Worker锁定Scrapy／aiohttp及完整依赖。Worker目标Linux/amd64 Python3.10，与本机3.13分开解析，已验证目标平台二进制wheel闭包；例如cssselect、filelock、multidict、platformdirs、pycparser、zope-interface选取仍支持3.10的版本，未照搬本机freeze。service／worker／bootstrap目标解析及本机pip check通过。
+API锁定FastAPI／uvicorn／httpx／Pydantic；任务环境锁定Scrapy／aiohttp及完整依赖。任务目标Linux/amd64 Python3.10，与本机3.13分开解析，已验证目标平台二进制wheel闭包；例如cssselect、filelock、multidict、platformdirs、pycparser、zope-interface选取仍支持3.10的版本，未照搬本机freeze。此前service／任务目标依赖闭包及本机pip check通过，本轮复用相同锁定依赖，仅将worker清单改名tasks；没有因改名重新安装依赖。
 
-Dockerfile使用已公开读取的上游amd64摘要；原Worker镜像元数据工作目录/app/backend、启动CMD保留，业务venv隔离原SDK。静态构建输入检查通过；`bash -n tools/worker_image.sh`语法检查，不等于Docker构建或Compose合并验收。
+修正版只有API Dockerfile。已删除业务Worker镜像、平台Compose覆盖、Worker构建／回退工具及过时venv引导清单；业务Compose不依赖平台Docker网络，prepare仅生成API资产。静态检查确认API构建输入和完整任务18文件清单存在，原生注册使用接口替身验证逐文件回读。通用节点只需兼容任务依赖，不预装本仓库；节点私有配置不进入同步清单。未执行Docker／Compose，也未实测原生平台的此次多文件同步。
 
-本地没有Linux/Python3.10实际运行时，目标依赖解析和3.10 AST检查不能代替镜像运行。服务器需实际验证：原生程序文件同步、环境／CA、权限／卷、Compose资源约束、M05可信内网入口、真实来源和代理、小规模任务闭环、长期队列／磁盘增长。部署步骤见[部署指引](../deploy/proxypool/README.md)。
+
+本地没有Linux/Python3.10实际运行时，目标依赖解析和3.10 AST检查不能代替通用节点实际运行。服务器需实际验证：原生程序文件同步、环境／CA、权限／卷、Compose资源约束、M05可信内网入口、真实来源和代理、小规模任务闭环、长期队列／磁盘增长。部署步骤见[部署指引](../deploy/proxypool/README.md)。
 
 ## 复用依据
 
