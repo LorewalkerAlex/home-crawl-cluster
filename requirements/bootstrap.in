@@ -1,0 +1,2 @@
+# Build helper is isolated with --target; no change to Crawlab's system SDK.
+virtualenv==21.15.1

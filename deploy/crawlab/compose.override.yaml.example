@@ -1,0 +1,12 @@
+# Template only. Replace the hostname with the accepted LAN hostname.
+# The server's compose.override.yaml is persistent configuration, not a backup.
+services:
+  master:
+    ports:
+      - "192.168.1.110:19666:9666"
+  worker:
+    dns:
+      - "192.168.1.110"
+    environment:
+      CRAWLAB_GRPC_ADDRESS: "crawlab.example.invalid:19666"
+      CRAWLAB_FS_FILER_URL: "https://crawlab.example.invalid:4129/api/filer"

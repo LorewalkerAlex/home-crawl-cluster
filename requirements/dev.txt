@@ -1,0 +1,20 @@
+# Exact dependency closure, resolved 2026-10-29 for Development/test CPython 3.13.
+-r service.txt
+-r worker.txt
+anyio==4.15.1
+colorama==0.4.6
+greenlet==3.5.6
+h11==0.16.0
+httpcore2==2.16.0
+httpx2==2.16.0
+idna==3.20
+iniconfig==2.3.1
+packaging==26.3
+playwright==1.64.1
+pluggy==1.7.0
+pyee==14.0.0
+pygments==2.21.0
+pytest==9.2.0
+truststore==0.10.5
+typing-extensions==4.16.0
+ruff==0.17.3

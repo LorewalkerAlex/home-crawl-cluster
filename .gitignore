@@ -1,0 +1,61 @@
+# 私密配置与本地工作资料
+.local/
+.ssh/
+.aws/
+secrets/
+credentials/
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# 运行数据；脱敏样本未来仅放 tests/fixtures/，逐个审查
+/data/
+/runtime/
+/artifacts/
+/uploads/
+logs/
+backups/
+*.log
+*.rdb
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+
+# Python 与前端可重建产物
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+dist/
+build/
+*.egg-info/
+
+# 编辑器和临时文件
+.idea/
+.vscode/
+*.tmp
+*.swp
+Thumbs.db
+.DS_Store
+
+# SQLite transient journal companions
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm

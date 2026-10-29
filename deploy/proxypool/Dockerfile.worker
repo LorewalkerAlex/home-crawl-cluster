@@ -1,0 +1,17 @@
+ARG CRAWLAB_IMAGE=crawlabteam/crawlab:0.6.3@sha256:9dbe97240ba2670ce49fd1be5d557b59653e602d8fa29a71c9e05b26c557193b
+FROM ${CRAWLAB_IMAGE}
+USER root
+WORKDIR /opt/proxypool
+COPY requirements/bootstrap.txt requirements/worker.txt /tmp/proxypool-requirements/
+# Preserve Crawlab's original Python/SDK. Only the task bootstrap enters this venv.
+RUN python -m pip install --no-cache-dir --only-binary=:all: --index-url https://pypi.org/simple \
+      --target /tmp/proxypool-venv-bootstrap -r /tmp/proxypool-requirements/bootstrap.txt \
+    && PYTHONPATH=/tmp/proxypool-venv-bootstrap python -m virtualenv --no-download /opt/proxypool/venv \
+    && /opt/proxypool/venv/bin/python -m pip install --no-cache-dir --only-binary=:all: \
+      --index-url https://pypi.org/simple -r /tmp/proxypool-requirements/worker.txt \
+    && rm -rf /tmp/proxypool-venv-bootstrap /tmp/proxypool-requirements
+COPY apps ./apps
+COPY integrations ./integrations
+ENV PYTHONPATH=/opt/proxypool PROXYPOOL_WORKER_PYTHON=/opt/proxypool/venv/bin/python
+WORKDIR /app/backend
+# Inherit the upstream Crawlab entrypoint/CMD and node configuration.

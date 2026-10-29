@@ -1,0 +1,7 @@
+# Runtime in the existing Crawlab 0.6.3 image: CPython 3.10, Linux amd64.
+Scrapy==2.19.0
+aiohttp==3.14.5
+pydantic==2.14.1
+# Explicit Python 3.10 conditions also make cross-platform resolution reproducible.
+async-timeout==5.0.1
+tomli==2.5.0

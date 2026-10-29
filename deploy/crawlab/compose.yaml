@@ -1,0 +1,105 @@
+name: crawlab
+
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+  security_opt:
+    - no-new-privileges:true
+
+x-crawlab: &crawlab
+  <<: *runtime
+  # Community 0.6.3, linux/amd64. Master and Worker share the same image layers.
+  image: crawlabteam/crawlab:0.6.3@sha256:9dbe97240ba2670ce49fd1be5d557b59653e602d8fa29a71c9e05b26c557193b
+  platform: linux/amd64
+  env_file:
+    - /srv/persistent/secrets/crawlab/app.env
+  pids_limit: 256
+
+services:
+  mongo:
+    <<: *runtime
+    image: mongo:7.0.45-jammy@sha256:6dad6a5e2addb71d84eb417fcbcba0e11d096669917f8e8c26607cd7b52f9495
+    platform: linux/amd64
+    env_file:
+      - /srv/persistent/secrets/crawlab/mongo.env
+    command: [mongod, --bind_ip_all, --wiredTigerCacheSizeGB, "0.25"]
+    cpus: "${MONGO_CPUS:-1.0}"
+    mem_limit: "${MONGO_MEMORY:-1g}"
+    pids_limit: 256
+    volumes:
+      - /srv/persistent/data/crawlab/mongo/db:/data/db
+      - /srv/persistent/data/crawlab/mongo/configdb:/data/configdb
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/10-crawlab-user.js:ro
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - >-
+          const d = db.getSiblingDB('crawlab');
+          const a = d.auth(process.env.CRAWLAB_MONGO_USERNAME, process.env.CRAWLAB_MONGO_PASSWORD);
+          if (!a || a.ok !== 1) quit(1);
+          quit(d.runCommand({ping: 1}).ok === 1 ? 0 : 2);
+      interval: 10s
+      timeout: 5s
+      start_period: 45s
+      retries: 18
+
+  master:
+    <<: *crawlab
+    environment:
+      CRAWLAB_NODE_MASTER: "Y"
+      CRAWLAB_NODE_NAME: home-master
+      CRAWLAB_GRPC_ADDRESS: localhost:9666
+      CRAWLAB_FS_FILER_URL: http://localhost:8000/filer
+      CRAWLAB_TASK_HANDLER_MAXRUNNERS: "1"
+    ports:
+      - "127.0.0.1:${CRAWLAB_HTTP_PORT:-13003}:8080"
+    volumes:
+      - /srv/persistent/data/crawlab/master/node:/root/.crawlab
+      - /srv/persistent/data/crawlab/master/data:/data
+      - /srv/persistent/data/crawlab/master/spiders:/spiders
+      - /srv/persistent/data/crawlab/master/workspace:/workspace
+      - /srv/persistent/data/crawlab/master/repo:/repo
+    cpus: "${MASTER_CPUS:-1.5}"
+    mem_limit: "${MASTER_MEMORY:-2g}"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8080/', timeout=3); raise SystemExit(0 if r.status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+
+  worker:
+    <<: *crawlab
+    # Explicitly start after Master login and disabling Master execution.
+    profiles: [worker]
+    environment:
+      CRAWLAB_NODE_MASTER: "N"
+      CRAWLAB_NODE_NAME: home-worker-01
+      CRAWLAB_GRPC_ADDRESS: master:9666
+      CRAWLAB_FS_FILER_URL: http://master:8080/api/filer
+      CRAWLAB_TASK_HANDLER_MAXRUNNERS: "1"
+    volumes:
+      - /srv/persistent/data/crawlab/worker/node:/root/.crawlab
+      - /srv/persistent/data/crawlab/worker/data:/data
+      - /srv/persistent/data/crawlab/worker/workspace:/workspace
+      - /srv/persistent/data/crawlab/worker/spiders:/spiders
+      - /srv/persistent/data/crawlab/worker/repo:/repo
+    cpus: "${WORKER_CPUS:-1.0}"
+    mem_limit: "${WORKER_MEMORY:-1g}"
+    depends_on:
+      master:
+        condition: service_healthy

@@ -1,0 +1,7 @@
+# Linux CPython 3.10 build helper; isolated --target install.
+distlib==0.4.4
+filelock==4.1.0
+packaging==26.3
+platformdirs==4.12.4
+python-discovery==1.6.7
+virtualenv==21.15.1

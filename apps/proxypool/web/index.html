@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Proxypool</title><link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+<header><div><span class="eyebrow">HOME SERVER</span><h1>Proxypool</h1><p>来源、测试网址与代理质量</p></div>
+  <form id="connectForm"><label>API Key<input id="apiKey" type="password" autocomplete="off" required></label><button>连接</button><button type="button" id="disconnect" class="secondary">退出</button></form>
+</header>
+<main>
+  <div id="notice" role="status" aria-live="polite">输入 API Key 连接。密钥仅保留在当前浏览器会话。</div>
+  <section class="overview" aria-label="总量">
+    <div class="metric"><span>代理总量 / 容量阈值</span><strong id="poolCount">—</strong></div>
+    <div class="metric"><span>启用的代理来源</span><strong id="sourceCount">—</strong></div>
+    <div class="metric"><span>启用的测试网址</span><strong id="targetCount">—</strong></div>
+  </section>
+  <div class="refresh"><span id="updated">尚未更新</span><label>刷新间隔（秒）<input id="refreshSeconds" type="number" value="15" min="5" max="600"></label><button id="refresh" class="secondary">刷新</button></div>
+  <section class="panel" aria-labelledby="sourceTitle">
+    <div class="sectionhead"><div><h2 id="sourceTitle">代理来源</h2><p>脚本需先登记；新增数量为0，也可能只是本次结果全部重复。</p></div><div><button id="capture" class="secondary" disabled>立即发布抓取</button><button id="addSource">添加来源</button></div></div>
+    <div class="tablewrap"><table><thead><tr><th>来源</th><th>启用</th><th>最近结果</th><th>输出 / 新增</th><th>耗时</th><th>操作</th></tr></thead><tbody id="sourcesBody"><tr><td colspan="6">连接后加载来源统计</td></tr></tbody></table></div>
+    <p id="publishing" class="hint"></p>
+  </section>
+  <section class="panel" aria-labelledby="targetTitle">
+    <div class="sectionhead"><div><h2 id="targetTitle">测试网址</h2><p>按网址积累评价；点击高分代理，在当前页面展开。</p></div><div><button id="test" class="secondary" disabled>立即发布测试</button><button id="addTarget">添加网址</button></div></div>
+    <div class="tablewrap"><table><thead><tr><th>名称 / URL</th><th>启用</th><th>已建评价</th><th id="scoreHeading">高分代理</th><th>操作</th></tr></thead><tbody id="targetsBody"><tr><td colspan="5">连接后加载测试网址</td></tr></tbody></table></div>
+  </section>
+</main>
+<dialog id="targetDialog"><form id="targetForm"><h2>测试网址</h2><input name="id" type="hidden"><label>名称<input name="name" required maxlength="80"></label><label>测试 URL<input name="test_url" type="url" required></label><label class="check"><input name="enabled" type="checkbox" checked>启用</label><p class="hint">修改测试地址后，该网址的旧评价会清除并重新积累。</p><div class="actions"><button type="button" data-close="targetDialog" class="secondary">取消</button><button>保存</button></div></form></dialog>
+<dialog id="sourceDialog"><form id="sourceForm"><h2>代理来源</h2><input name="id" type="hidden"><label>名称<input name="name" required maxlength="80"></label><label>已登记脚本<select name="spider_key" required></select></label><label>来源 URL<input name="url" type="url" required></label><label class="check"><input name="enabled" type="checkbox">启用</label><p class="hint">来源代码由仓库登记和部署；此处仅配置已有入口。</p><div class="actions"><button type="button" data-close="sourceDialog" class="secondary">取消</button><button>保存</button></div></form></dialog>
+</body></html>

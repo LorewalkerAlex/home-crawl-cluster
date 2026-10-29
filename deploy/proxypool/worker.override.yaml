@@ -1,0 +1,17 @@
+# Merge after the server's existing compose.yaml AND LAN compose.override.yaml.
+# PROXYPOOL_REPO is an absolute clone path, avoiding Compose first-file path rules.
+services:
+  worker:
+    image: server-craw-cluster/worker:${PROXYPOOL_IMAGE_TAG:-local}
+    build:
+      context: ${PROXYPOOL_REPO:?Set PROXYPOOL_REPO to the absolute repository path}
+      dockerfile: deploy/proxypool/Dockerfile.worker
+    env_file:
+      - ${PROXYPOOL_WORKER_ENV:-/srv/persistent/secrets/proxypool/worker.env}
+    volumes:
+      - type: bind
+        source: ${PROXYPOOL_WORKER_CONFIG:-/srv/persistent/secrets/proxypool/worker.json}
+        target: /config/worker.json
+        read_only: true
+        bind:
+          create_host_path: false

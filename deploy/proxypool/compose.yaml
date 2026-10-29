@@ -1,0 +1,58 @@
+name: proxypool
+services:
+  api:
+    image: server-craw-cluster/proxypool:${PROXYPOOL_IMAGE_TAG:-local}
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: deploy/proxypool/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ${PROXYPOOL_APP_ENV:-/srv/persistent/secrets/proxypool/app.env}
+    ports:
+      - "127.0.0.1:${PROXYPOOL_HTTP_PORT:-13004}:13004"
+    dns:
+      - ${LAN_DNS:-192.168.1.110}
+    volumes:
+      - type: bind
+        source: ${PROXYPOOL_DATA:-/srv/persistent/data/proxypool}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PROXYPOOL_SOURCE_REGISTRY:-/srv/apps/proxypool/source-registry.json}
+        target: /config/source-registry.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PROXYPOOL_CONFIG:-/srv/apps/proxypool/config.json}
+        target: /config/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: "${PROXYPOOL_CPUS:-0.5}"
+    mem_limit: ${PROXYPOOL_MEMORY:-512m}
+    pids_limit: 64
+    stop_grace_period: 60s
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:13004/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    networks: [crawlab]
+networks:
+  crawlab:
+    external: true
+    name: ${CRAWLAB_NETWORK:-crawlab_default}
