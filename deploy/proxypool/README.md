@@ -98,12 +98,14 @@ fi
 ```
 
 ```bash
-if sudo docker compose -f deploy/proxypool/compose.yaml build --build-arg HTTP_PROXY=http://192.168.1.120:5780 --build-arg HTTPS_PROXY=http://192.168.1.120:5780 api && sudo bash tools/worker_image.sh build --build-arg HTTP_PROXY=http://192.168.1.120:5780 --build-arg HTTPS_PROXY=http://192.168.1.120:5780; then
+if sudo env HTTP_PROXY=http://192.168.1.120:5780 HTTPS_PROXY=http://192.168.1.120:5780 docker compose -f deploy/proxypool/compose.yaml build --build-arg HTTP_PROXY=http://192.168.1.120:5780 --build-arg HTTPS_PROXY=http://192.168.1.120:5780 api && sudo env HTTP_PROXY=http://192.168.1.120:5780 HTTPS_PROXY=http://192.168.1.120:5780 bash tools/worker_image.sh build --build-arg HTTP_PROXY=http://192.168.1.120:5780 --build-arg HTTPS_PROXY=http://192.168.1.120:5780; then
     printf '%s\n' 'API and Worker images built.'
 else
     printf '%s\n' 'Image build failed; stop before starting services.'
 fi
 ```
+
+2026-10-29用户输出：只传build-arg时API基础镜像元数据阶段121秒超时；补充sudo env使Compose／Buildx客户端也走代理后，元数据4.2秒完成，API全部依赖安装及镜像导出通过。该结果支持保留上面两层显式代理；API容器运行及Worker构建分别验收，不因镜像Built而记业务部署完成。
 
 这会在服务器下载锁定依赖并构建镜像。Worker基于与现有部署相同的0.6.3镜像摘要，新建业务venv，保留上游Python/SDK及原/app/backend工作目录，不升级平台。API基于锁定Python3.13镜像，非root运行。依赖闭包已分别按Linux/amd64 Python3.13与实际Worker3.10解析；实际镜像结果仍以本轮服务器输出为准。
 
