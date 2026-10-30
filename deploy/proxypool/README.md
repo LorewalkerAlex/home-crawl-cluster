@@ -128,6 +128,14 @@ fi
 
 API本身的代码或依赖更新仍按前文构建／重建API；依赖更新由集群侧构建通用环境。本次抓取出口及诊断更新不改变API或任务依赖，不需要重建镜像。
 
+### 旧版请求头对照
+
+2026-10-30用户同意先恢复旧测试脚本的浏览器请求头做对照。config/headers.legacy-edge136.json逐项来自旧Tester.headers，固定Windows Edge/Chromium136、HTML Accept、zh-CN语言与gzip/deflate/br/zstd；它是历史行为基准，不是最新浏览器指纹或curl_cffi实现。依赖、TLS校验、跳转、并发、超时、计分、Cookie行为和反馈协议均保持当前设置；不恢复旧版ssl=False或206／302成功判定。
+
+用户在宿主机将该JSON对象写入/srv/persistent/secrets/crawlab-tasks/home-worker-01/proxypool.json的request_headers字段，保留其他字段及权限，原位写入并回读验证。现有目录只读挂载会让下一任务读取新值，无需重启。先确认本业务任务空闲；现有自定义头应停止而不是无提示覆盖。只输出头字段名与修改结果，不输出密钥或完整私有配置。没有新业务源码或依赖要部署，原生详细日志更新仍按下节同步；不要把git pull当作已同步原生程序。
+
+本地已验证配置修改幂等、其他字段／inode／权限保持，以及真实回环HTTPS CONNECT收到完整旧请求头、两种请求头均能回传并提交，临时库已删除。另用同一PC代理与当前测试函数对Bilibili做两次只读请求：原默认头与旧版头的最终HTTP状态都为200；没有读写正式M05或候选池分数。这只能说明该本机出口下两套头均可请求，不能解释60个候选失败或证明页面内容可用。服务器配置尚待用户执行；正式对照前保留最小测试间隔并保持自动发布关闭。
+
 ### 测试结果和原生任务日志
 
 `{"kind":"test","reported":60,"committed":true}`表示60条反馈已提交，不表示60条代理访问成功。新版任务源码另外输出test_start、有限频率的test_progress、test_summary和feedback_committed，能区分HTTP200、目标非200、连接／超时、本地错误及回调失败。HTTPS CONNECT阶段的代理拒绝状态与目标HTTP状态分开统计；不会打印完整任务参数、Token、API Key、代理URL或URL查询串，也不新增数据库历史记录。
