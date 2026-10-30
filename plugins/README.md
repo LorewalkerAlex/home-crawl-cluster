@@ -15,6 +15,8 @@
 | ip3366 | HTTP入口返回521及JS校验页，HTTPS握手失败；旧表格解析不能处理。保留七页表格解析／分页适配，异常页面明确失败；本地任务失败结果已回传，新增0 | 当前停用；未引入浏览器、Cookie绕过或关闭证书校验 |
 | ipfreeonly | 旧JSON接口可达，但limit=500／50都未把响应限制到现有2MiB预算内；改用网站当前使用的/api/data/proxy-list分页接口，每页约11KiB，保留最多检查500条、非CN且HTTP的过滤。新country对象用countryCode；非空username／password跳过，不把带凭据条目伪装成匿名代理 | 本次17页处理后匿名候选0；不建议启用。网站可达不等于适合当前匿名模型 |
 
+后续正式验收：同日用户返回Task finished、来源输出／新增60、代理总量60及committed=true，89IP热注册后的真实抓取入库已通过。见[验证记录](../docs/validation.md#2026-10-30服务器89ip正式抓取验收)；其他来源状态和代理质量测试不因此通过。
+
 SCDN旧代码把完全相同的URL请求139次，实际没有分页参数；新版一次抓取只请求一次。其[官方文档](https://proxy.scdn.io/api_docs.php)限定count最大20，protocol=https是来源筛选条件，不能据此把裸IP:port的连接scheme改成TLS代理。FreeOnly分页地址来自其[当前页面](https://proxyfreeonly.com/free-proxy-list)使用的公开请求，仍可能变更；解析错误不会记成正常空列表。
 
 四个脚本都遵守`ProxySourceSpider(SourceSpider)`，只yield标准端点或下一页Request，不写库、不带密钥、不负责回调。仍由现有任务程序统一限制请求超时、页数、条数、下载体积并直接回传M05；数据库去重、计分和调用协议没有变化。保留2MiB单响应预算，FreeOnly分17个小响应完成原500条检查上限，没有扩大成整站下载。来源输出只是候选，未做目标网站质量测试。
