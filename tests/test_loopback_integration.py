@@ -86,9 +86,7 @@ def api_server(tmp_path):
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     server = uvicorn.Server(uvicorn.Config(app, log_level="error", access_log=False))
-    thread = threading.Thread(
-        target=server.run, kwargs={"sockets": [sock]}, daemon=True
-    )
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
     deadline = time.monotonic() + 8
     while not server.started and thread.is_alive() and time.monotonic() < deadline:
@@ -163,12 +161,8 @@ def proxy_handler(mode="normal"):
             if mode == "slow":
                 time.sleep(0.5)
             parsed = urlsplit(self.path)
-            assert parsed.hostname == "127.0.0.1", (
-                "This fixture may only forward to loopback"
-            )
-            connection = http.client.HTTPConnection(
-                parsed.hostname, parsed.port, timeout=2
-            )
+            assert parsed.hostname == "127.0.0.1", "This fixture may only forward to loopback"
+            connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=2)
             try:
                 connection.request("GET", parsed.path or "/")
                 response = connection.getresponse()
@@ -192,9 +186,7 @@ def proxy_handler(mode="normal"):
                         data = source.recv(65536)
                         if not data:
                             return
-                        (
-                            upstream if source is self.connection else self.connection
-                        ).sendall(data)
+                        (upstream if source is self.connection else self.connection).sendall(data)
             except (OSError, ConnectionResetError):
                 pass
             finally:
@@ -228,10 +220,7 @@ def test_actual_worker_http_proxy_results(tmp_path):
             for x in (good, bad, slow)
         ]
         assert (
-            client.post("/v1/proxies/import", json={"proxies": endpoints}).json()[
-                "inserted"
-            ]
-            == 3
+            client.post("/v1/proxies/import", json={"proxies": endpoints}).json()["inserted"] == 3
         )
         job = dict(
             common_job(),
@@ -247,28 +236,24 @@ def test_actual_worker_http_proxy_results(tmp_path):
                 for i, server in enumerate((good, bad, slow))
             ],
         )
-        result = worker(job, url)
+        options = tmp_path / "settings.json"
+        options.write_text(json.dumps({"capture_proxy_url": "http://127.0.0.1:1"}))
+        result = worker(job, url, {"PROXYPOOL_TASK_SETTINGS": str(options)})
         assert result.returncode == 0, (result.stdout, result.stderr)
         with app.state.writer.database.reader() as db:
-            rows = db.execute(
-                "SELECT * FROM proxy_quality ORDER BY proxy_id"
-            ).fetchall()
+            rows = db.execute("SELECT * FROM proxy_quality ORDER BY proxy_id").fetchall()
         assert [row["result_bits"] for row in rows] == [1, 0, 0]
         assert [row["feedback_count"] for row in rows] == [1, 1, 1]
         assert rows[0]["successful_latency_ewma_ms"] is not None
         assert rows[1]["successful_latency_ewma_ms"] is None
-        chosen = client.post(
-            "/v1/proxies/acquire", json={"target_id": target_row["target_id"]}
-        )
+        chosen = client.post("/v1/proxies/acquire", json={"target_id": target_row["target_id"]})
         assert chosen.status_code == 200
 
 
 def tls_files(tmp_path):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     now = datetime.now(timezone.utc)
-    name = x509.Name(
-        [x509.NameAttribute(NameOID.COMMON_NAME, "Loopback acceptance only")]
-    )
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Loopback acceptance only")])
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)
@@ -282,16 +267,10 @@ def tls_files(tmp_path):
             x509.KeyUsage(True, False, True, False, False, True, True, False, False),
             True,
         )
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), False)
         .add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(key.public_key()), False
-        )
-        .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), False
-        )
-        .add_extension(
-            x509.SubjectAlternativeName(
-                [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
-            ),
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
             False,
         )
         .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), False)
@@ -343,9 +322,7 @@ def test_https_target_via_actual_connect_proxy(tmp_path):
             kind="test",
             concurrency=1,
             target=target_row,
-            proxies=[
-                {"proxy_id": 1, "proxy_url": f"http://127.0.0.1:{proxy.server_port}"}
-            ],
+            proxies=[{"proxy_id": 1, "proxy_url": f"http://127.0.0.1:{proxy.server_port}"}],
         )
         result = worker(job, url, {"PROXYPOOL_TASK_SETTINGS": str(options)})
         assert result.returncode == 0, (result.stdout, result.stderr)
@@ -396,14 +373,66 @@ def test_actual_scrapy_pagination_and_source_commit(tmp_path):
         assert client.get("/v1/stats").json()["proxy_count"] == 2
         state = client.get("/v1/sources").json()["items"][0]
         assert (
-            state["outcome"] == "success"
-            and state["output_count"] == 2
-            and state["pages_ok"] == 2
+            state["outcome"] == "success" and state["output_count"] == 2 and state["pages_ok"] == 2
         )
         assert state["inserted_count"] == 2 and state["pages_failed"] == 0
         again = worker(job, url)
         assert again.returncode == 0, (again.stdout, again.stderr)
         assert client.get("/v1/stats").json()["proxy_count"] == 2
+
+
+def test_capture_proxy_forwards_pagination_without_proxying_m05(tmp_path):
+    calls = []
+    forwarding = proxy_handler()
+
+    class Proxy(forwarding):
+        def do_GET(self):
+            calls.append(self.path)
+            super().do_GET()
+
+    class Pages(QuietHandler):
+        def do_GET(self):
+            following = '<a class="next" href="/two">next</a>' if self.path == "/one" else ""
+            port = 8080 if self.path == "/one" else 8081
+            self.reply(
+                200,
+                f'<table id="proxies"><tr><td>192.0.2.1</td><td>{port}</td></tr></table>{following}',
+            )
+
+    with (
+        api_server(tmp_path) as (client, app, url),
+        http_server(Pages) as pages,
+        http_server(Proxy) as proxy,
+    ):
+        source = client.post(
+            "/v1/sources",
+            json={
+                "name": "proxied fixture",
+                "spider_key": "example_table",
+                "url": f"http://127.0.0.1:{pages.server_port}/one",
+                "enabled": True,
+            },
+        ).json()
+        options = tmp_path / "settings.json"
+        options.write_text(
+            json.dumps({"capture_proxy_url": f"http://127.0.0.1:{proxy.server_port}"})
+        )
+        job = dict(
+            common_job(),
+            kind="capture",
+            source={x: source[x] for x in ("source_id", "spider_key", "url")},
+            source_max_records=100,
+            source_max_pages=10,
+            source_timeout_seconds=5,
+        )
+        result = worker(job, url, {"PROXYPOOL_TASK_SETTINGS": str(options)})
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert calls == [source["url"], f"http://127.0.0.1:{pages.server_port}/two"]
+        assert client.get("/v1/stats").json()["proxy_count"] == 2
+        state = client.get("/v1/sources").json()["items"][0]
+        assert state["outcome"] == "success" and state["inserted_count"] == 2
+        # This proxy implements GET only: M05's authenticated POST must stay direct.
+        assert "REMOTE_CONTROL" not in result.stderr
 
 
 def test_result_retry_does_not_repeat_network_test(tmp_path):
@@ -464,10 +493,7 @@ def test_result_retry_does_not_repeat_network_test(tmp_path):
             assert execution.returncode == 0, (execution.stdout, execution.stderr)
         assert calls == {"target": 1, "callback": 2}
         with app.state.writer.database.reader() as db:
-            assert (
-                db.execute("SELECT feedback_count FROM proxy_quality").fetchone()[0]
-                == 1
-            )
+            assert db.execute("SELECT feedback_count FROM proxy_quality").fetchone()[0] == 1
 
 
 def test_failed_source_updates_health_without_proxy_failure_samples(tmp_path):
@@ -495,6 +521,15 @@ def test_failed_source_updates_health_without_proxy_failure_samples(tmp_path):
         )
         execution = worker(job, url)
         assert execution.returncode == 1
+        diagnostics = [
+            json.loads(line)["capture_diagnostics"]
+            for line in execution.stdout.splitlines()
+            if line.startswith('{"capture_diagnostics":')
+        ][0]
+        assert diagnostics["http_status_counts"].get("503", 0) >= 1
+        assert diagnostics["captured_count"] == 0
+        assert "503" in execution.stderr, execution.stderr
+        assert "install_root_handler parameter is deprecated" not in execution.stderr
         state = client.get("/v1/sources").json()["items"][0]
         assert state["outcome"] == "failed" and state["output_count"] == 0
         assert client.get("/v1/stats").json()["proxy_count"] == 0

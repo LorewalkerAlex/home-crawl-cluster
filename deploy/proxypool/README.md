@@ -103,6 +103,31 @@ fi
 
 ## 验收、更新与停止
 
+### 来源抓取的可选网络出口
+
+来源网站无法直连时，在节点私有`/run/crawl-tasks/proxypool.json`中增加`"capture_proxy_url": "http://192.168.1.120:5780"`；该路径在当前服务器对应`/srv/persistent/secrets/crawlab-tasks/home-worker-01/proxypool.json`。未配置或null时保持直连，不自动读取进程HTTP_PROXY。该参数仅供Scrapy抓取来源网页／分页，复用标准HttpProxyMiddleware；代理质量测试继续显式使用待测代理，M05鉴权回调也不经此出口。PC和代理需在抓取期间在线；这是可选节点网络配置，不是新的常驻服务或业务Worker镜像。
+
+修改节点JSON时保留原api_key、m05_url、max_concurrency及其他配置，不输出完整JSON。现有目录只读挂载允许后续任务读取更新的文件，无需重建／重启Worker。`--check`只报告是否配置出口，不发外网请求；真实可达性仍通过一次来源抓取核对。失败日志会输出HTTP计数、异常类别、解析错误数和关闭原因；`committed=true, failed=true`表示来源失败的结果已入库，不表示抓取成功。
+
+若只更新任务Python源码、依赖未变，可在服务器拉取Git后用现有API镜像作为一次性CLI，挂载新仓库进行原生代码同步。不要只在旧API容器内运行旧路径的注册工具，否则仍同步旧镜像中的源码。以下操作复用已有两个程序，不执行抓取、不改API运行容器、SQLite或Worker环境，完成后自动删除一次性容器。先确认本业务无pending／running任务：
+
+```bash
+if cd /srv/apps/home-crawl-cluster &&
+    sudo docker compose -f deploy/proxypool/compose.yaml run --rm --no-deps -T \
+        --name proxypool-program-sync \
+        -v /srv/apps/home-crawl-cluster:/delivery:ro \
+        api python -B /delivery/tools/register_crawlab.py \
+        --config /config/config.json \
+        --python /opt/crawl-runtime/bin/python \
+        --settings-file /run/crawl-tasks/proxypool.json; then
+    printf '%s\n' 'Task source synchronized and read back; no task submitted.'
+else
+    printf '%s\n' 'Source synchronization failed. Stop and report this output.'
+fi
+```
+
+API本身的代码或依赖更新仍按前文构建／重建API；依赖更新由集群侧构建通用环境。本次抓取出口及诊断更新不改变API或任务依赖，不需要重建镜像。
+
 先登录网页，点击添加来源，选一个已接入的来源，默认URL自动填充，填写名称并勾选启用；保存后点击立即发布抓取，核对Crawlab任务、来源输出／新增与代理总量。这一步不要求测试网址，测试网址保持0也可以抓取入库。抓取链路通过后，再添加一个实际需要访问的网站并对它测小批，检查200／失败计分、时间和重复传输只计一次；积累足够成功样本后测试获取与统一使用反馈。没有高分代理时NO_PROXY_AVAILABLE是正常冷启动。
 
 发布前读取本业务两个程序pending／running数量，达到native_task_limit（默认8）则本轮跳过，避免节点停机时无限积压；不等待任务完成、不创建业务任务状态库。每分钟一个100代理任务是最多6000次安排/小时，10万代理单目标一轮至少16.7小时，不能承诺5分钟全池重测。按完成速度、目标数、CPU／RSS、排队量、WAL和平台卷增长调整；先观察30—60分钟再开启定时。

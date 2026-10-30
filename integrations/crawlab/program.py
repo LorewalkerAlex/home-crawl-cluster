@@ -12,6 +12,7 @@ FILES = (
     "apps/proxypool/contracts.py",
     "apps/proxypool/tester/execute.py",
     "apps/proxypool/crawler/execute.py",
+    "apps/proxypool/crawler/proxy.py",
     "apps/proxypool/crawler/registry.py",
     "apps/proxypool/crawler/spiders/base.py",
     "apps/proxypool/crawler/spiders/example_table.py",
@@ -22,12 +23,8 @@ FILES = (
 
 def program_files():
     files = {name: (ROOT / name).read_text(encoding="utf-8") for name in FILES}
-    files["proxypool_task.py"] = (ROOT / "apps/proxypool/task_entry.py").read_text(
-        encoding="utf-8"
-    )
-    files["requirements.txt"] = (ROOT / "requirements/tasks.txt").read_text(
-        encoding="utf-8"
-    )
+    files["proxypool_task.py"] = (ROOT / "apps/proxypool/task_entry.py").read_text(encoding="utf-8")
+    files["requirements.txt"] = (ROOT / "requirements/tasks.txt").read_text(encoding="utf-8")
     for folder in (
         "apps",
         "apps/proxypool",

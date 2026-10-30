@@ -14,15 +14,15 @@ class TaskSettings:
     request_headers: dict | None = None
     ca_file: str | None = None
     max_concurrency: int = 20
+    capture_proxy_url: str | None = None
 
     def __post_init__(self):
         http_url(self.m05_url)
+        if self.capture_proxy_url is not None:
+            http_url(self.capture_proxy_url)
         if len(self.api_key) < 16:
             raise ValueError("Configure a private M05 API key (at least 16 characters)")
-        if (
-            type(self.max_concurrency) is not int
-            or not 1 <= self.max_concurrency <= 1000
-        ):
+        if type(self.max_concurrency) is not int or not 1 <= self.max_concurrency <= 1000:
             raise ValueError("Invalid node request concurrency limit")
         if self.request_headers is not None and (
             not isinstance(self.request_headers, dict)
@@ -36,9 +36,7 @@ class TaskSettings:
     @classmethod
     def load(cls, filename=None):
         filename = filename or os.getenv("PROXYPOOL_TASK_SETTINGS")
-        data = (
-            json.loads(Path(filename).read_text(encoding="utf-8")) if filename else {}
-        )
+        data = json.loads(Path(filename).read_text(encoding="utf-8")) if filename else {}
         if not isinstance(data, dict):
             raise ValueError("Task settings must be a JSON object")
         data.setdefault("m05_url", os.getenv("PROXYPOOL_M05_URL", ""))
