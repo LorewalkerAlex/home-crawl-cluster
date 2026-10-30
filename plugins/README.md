@@ -26,7 +26,7 @@ SCDN旧代码把完全相同的URL请求139次，实际没有分页参数；新�
 ```bash
 if cd /srv/apps/home-crawl-cluster &&
     sudo python3 -B tools/register_source.py \
-        --crawlab-url https://crawlab.eurexis.com:4129/api \
+        --crawlab-url http://127.0.0.1:13003/api \
         --env-file /srv/persistent/secrets/proxypool/app.env \
         --capture-spider-id 6ae3f6abd3ce990c0cd599f0 \
         --registry /srv/apps/proxypool/source-registry.json \
@@ -38,6 +38,8 @@ else
     printf '%s\n' 'Registration failed. Stop and report this output.'
 fi
 ```
+
+这条命令在服务器宿主机执行，使用已部署的127.0.0.1:13003回环入口，不依赖宿主机解析内网域名；不要将这个回环地址用于Worker容器的连接配置。
 
 上面的现有程序ID仅适用本项目已验收的home-server；其他安装需用自己的ID。注册工具不创建临时文件或常驻容器，保留注册后的正式脚本和元数据即可。若只登记这个独立脚本而不使用本轮其他抓取改动，可以直接复用旧任务中已存在的SourceSpider，无需先更新整套程序。
 
