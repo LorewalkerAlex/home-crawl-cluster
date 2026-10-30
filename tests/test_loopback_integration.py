@@ -212,7 +212,7 @@ def test_actual_worker_http_proxy_results(tmp_path):
             "/v1/targets",
             json={
                 "name": "loopback",
-                "test_url": f"http://127.0.0.1:{target.server_port}/",
+                "test_url": f"http://127.0.0.1:{target.server_port}/?access_token=synthetic-query-secret",
                 "enabled": True,
             },
         ).json()
@@ -238,9 +238,26 @@ def test_actual_worker_http_proxy_results(tmp_path):
             ],
         )
         options = tmp_path / "settings.json"
-        options.write_text(json.dumps({"capture_proxy_url": "http://127.0.0.1:1"}))
+        options.write_text(
+            json.dumps({"capture_proxy_url": "http://127.0.0.1:1", "max_concurrency": 2})
+        )
         result = worker(job, url, {"PROXYPOOL_TASK_SETTINGS": str(options)})
         assert result.returncode == 0, (result.stdout, result.stderr)
+        output = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+        events = {row["event"]: row for row in output if "event" in row}
+        assert events["test_start"]["concurrency"] == 2
+        assert events["test_progress"]["completed"] == 3
+        summary = events["test_summary"]
+        assert (summary["tested"], summary["success_count"], summary["failure_count"]) == (3, 1, 2)
+        assert summary["http_status_counts"] == {"200": 1, "503": 1}
+        assert summary["error_counts"] == {"timeout": 1}
+        assert sum(summary["exception_types"].values()) == 1
+        assert {row["proxy_id"] for row in summary["failure_examples"]} == {2, 3}
+        assert events["feedback_committed"]["accepted"] == 3
+        assert events["feedback_committed"]["ignored"] == 0
+        assert output[-1] == {"kind": "test", "reported": 3, "committed": True}
+        assert "synthetic-query-secret" not in result.stdout and KEY not in result.stdout
+        assert all(member["proxy_url"] not in result.stdout for member in job["proxies"])
         with app.state.writer.database.reader() as db:
             rows = db.execute("SELECT * FROM proxy_quality ORDER BY proxy_id").fetchall()
         assert [row["result_bits"] for row in rows] == [1, 0, 0]
@@ -551,8 +568,98 @@ def test_result_retry_does_not_repeat_network_test(tmp_path):
             execution = worker(job, f"http://127.0.0.1:{callback.server_port}")
             assert execution.returncode == 0, (execution.stdout, execution.stderr)
         assert calls == {"target": 1, "callback": 2}
+        events = [
+            json.loads(line) for line in execution.stdout.splitlines() if line.startswith("{")
+        ]
+        retry = next(row for row in events if row.get("event") == "callback_retry")
+        assert retry["http_status"] == 503 and retry["next_attempt"] == 2
+        assert sum(row.get("event") == "test_summary" for row in events) == 1
+        assert sum(row.get("event") == "feedback_committed" for row in events) == 1
         with app.state.writer.database.reader() as db:
             assert db.execute("SELECT feedback_count FROM proxy_quality").fetchone()[0] == 1
+
+
+def test_connect_failure_logs_proxy_status_without_inventing_target_response(tmp_path):
+    class DeniedProxy(QuietHandler):
+        def do_CONNECT(self):
+            self.reply(407, "proxy authentication required")
+
+    with api_server(tmp_path) as (client, app, url), http_server(DeniedProxy) as proxy:
+        target = client.post(
+            "/v1/targets",
+            json={
+                "name": "blocked CONNECT",
+                "test_url": "https://example.invalid/",
+                "enabled": True,
+            },
+        ).json()
+        client.post(
+            "/v1/proxies/import",
+            json={"proxies": [{"host": "127.0.0.1", "port": proxy.server_port}]},
+        )
+        job = dict(
+            common_job(),
+            kind="test",
+            concurrency=1,
+            target=target,
+            proxies=[{"proxy_id": 1, "proxy_url": f"http://127.0.0.1:{proxy.server_port}"}],
+        )
+        result = worker(job, url)
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        summary = next(
+            json.loads(line)
+            for line in result.stdout.splitlines()
+            if line.startswith('{"event": "test_summary"')
+        )
+        assert summary["success_count"] == 0 and summary["failure_count"] == 1
+        assert summary["http_status_counts"] == {}
+        assert summary["proxy_http_status_counts"] == {"407": 1}
+        assert summary["exception_types"] == {"ClientHttpProxyError": 1}
+        with app.state.writer.database.reader() as db:
+            row = db.execute("SELECT * FROM proxy_quality").fetchone()
+        assert row["sample_count"] == 1 and row["result_bits"] == 0
+
+
+def test_callback_failure_does_not_log_a_successful_commit(tmp_path):
+    calls = {"target": 0, "callback": 0}
+
+    class Target(QuietHandler):
+        def do_GET(self):
+            calls["target"] += 1
+            self.reply(200, "ok")
+
+    class Callback(QuietHandler):
+        def do_POST(self):
+            calls["callback"] += 1
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.reply(503, "unavailable")
+
+    with (
+        http_server(Target) as target,
+        http_server(proxy_handler()) as proxy,
+        http_server(Callback) as callback,
+    ):
+        job = dict(
+            common_job(),
+            kind="test",
+            concurrency=1,
+            target={
+                "target_id": 1,
+                "revision": 1,
+                "test_url": f"http://127.0.0.1:{target.server_port}/",
+            },
+            proxies=[{"proxy_id": 1, "proxy_url": f"http://127.0.0.1:{proxy.server_port}"}],
+        )
+        result = worker(job, f"http://127.0.0.1:{callback.server_port}")
+        assert result.returncode == 1
+        assert calls == {"target": 1, "callback": 2}
+        events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+        assert any(
+            row.get("event") == "test_summary" and row["success_count"] == 1 for row in events
+        )
+        assert any(row.get("event") == "callback_failed" for row in events)
+        assert not any(row.get("event") == "feedback_committed" for row in events)
+        assert events[-1]["committed"] is False
 
 
 def test_failed_source_updates_health_without_proxy_failure_samples(tmp_path):

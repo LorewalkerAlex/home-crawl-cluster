@@ -9,7 +9,7 @@ import aiohttp
 DEFAULT_HEADERS = {"User-Agent": "Proxypool/1.0"}
 
 
-async def test_proxies(job, *, headers=None, ssl_context=None):
+async def test_proxies(job, *, headers=None, ssl_context=None, on_result=None):
     concurrency = int(job["concurrency"])
     if not 1 <= concurrency <= 1000 or not 0 < float(job["request_timeout_seconds"]) <= 600:
         raise ValueError("Invalid test execution bounds")
@@ -22,6 +22,7 @@ async def test_proxies(job, *, headers=None, ssl_context=None):
     async with aiohttp.ClientSession(connector=connector, trust_env=False) as session:
 
         async def visit(member):
+            diagnostic = {}
             record = {
                 "result_id": uuid4().hex,
                 "proxy_id": member["proxy_id"],
@@ -43,13 +44,20 @@ async def test_proxies(job, *, headers=None, ssl_context=None):
                         allow_redirects=True,
                     ) as response:
                         record.update(outcome="response", http_status=response.status)
-                except asyncio.TimeoutError:
+                except asyncio.TimeoutError as error:
                     record.update(outcome="request_error", error_code="timeout")
-                except aiohttp.ClientError:
+                    diagnostic["exception_type"] = type(error).__name__
+                except aiohttp.ClientError as error:
                     record.update(outcome="request_error", error_code="connection_error")
-                except (ValueError, TypeError):
+                    diagnostic["exception_type"] = type(error).__name__
+                    if isinstance(error, aiohttp.ClientHttpProxyError):
+                        diagnostic["proxy_http_status"] = error.status
+                except (ValueError, TypeError) as error:
                     record.update(outcome="local_error", error_code="invalid_request")
+                    diagnostic["exception_type"] = type(error).__name__
                 record["latency_ms"] = round((time.monotonic() - start) * 1000, 3)
+            if on_result is not None:
+                on_result(record, diagnostic)
             return record
 
         return await asyncio.gather(*(visit(member) for member in job["proxies"]))

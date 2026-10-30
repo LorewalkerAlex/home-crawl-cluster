@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import base64
+from collections import Counter
 import json
 import logging
 import os
@@ -10,12 +11,18 @@ from pathlib import Path
 import ssl
 import sys
 import time
+from urllib.parse import urlsplit
 import aiohttp
 from .contracts import Feedback, SourceResult
 from .task_settings import TaskSettings
+from .task_batches import callback_chunks
 
 logger = logging.getLogger(__name__)
-from .task_batches import callback_chunks
+
+
+def task_event(event, **fields):
+    """Bounded task diagnostics; never dump job data, credentials or proxy URLs."""
+    print(json.dumps({"event": event, **fields}), flush=True)
 
 
 async def post_committed(base_url, key, path, payload, job):
@@ -23,6 +30,7 @@ async def post_committed(base_url, key, path, payload, job):
     error = None
     async with aiohttp.ClientSession(trust_env=False) as session:
         for attempt in range(int(job["retry_attempts"])):
+            http_status = None
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
@@ -35,6 +43,7 @@ async def post_committed(base_url, key, path, payload, job):
                     timeout=timeout,
                     allow_redirects=False,
                 ) as response:
+                    http_status = response.status
                     if response.status == 429 or response.status >= 500:
                         raise aiohttp.ClientConnectionError("Temporary callback failure")
                     if response.status != 200:
@@ -49,7 +58,18 @@ async def post_committed(base_url, key, path, payload, job):
             except (aiohttp.ClientError, asyncio.TimeoutError) as caught:
                 error = caught
                 if attempt + 1 < int(job["retry_attempts"]):
+                    task_event(
+                        "callback_retry",
+                        path=path,
+                        attempt=attempt + 1,
+                        next_attempt=attempt + 2,
+                        http_status=http_status,
+                        error_type=type(caught).__name__,
+                    )
                     await asyncio.sleep(min(2**attempt, max(0, deadline - time.monotonic())))
+    task_event(
+        "callback_failed", path=path, error_type=type(error).__name__ if error else "deadline"
+    )
     raise RuntimeError("Callback retries exhausted") from error
 
 
@@ -61,12 +81,99 @@ async def report_tests(job, base_url, key, options=None):
         job,
         concurrency=min(int(job["concurrency"]), int(options.get("max_concurrency", 20))),
     )
+    started = last_progress = time.monotonic()
+    total = len(job["proxies"])
+    completed = successes = responses = request_errors = local_errors = 0
+    statuses, errors, exception_types, proxy_statuses = Counter(), Counter(), Counter(), Counter()
+    successful_latencies, examples = [], []
+    target = job["target"]
+    task_event(
+        "test_start",
+        task_id=os.getenv("CRAWLAB_TASK_ID"),
+        target_id=target["target_id"],
+        target_host=urlsplit(target["test_url"]).hostname,
+        proxy_count=total,
+        concurrency=job["concurrency"],
+        timeout_seconds=job["request_timeout_seconds"],
+    )
+
+    def completed_result(record, diagnostic):
+        nonlocal completed, successes, responses, request_errors, local_errors, last_progress
+        completed += 1
+        if record["outcome"] == "response":
+            responses += 1
+            statuses[str(record["http_status"])] += 1
+            if record["http_status"] == 200:
+                successes += 1
+                successful_latencies.append(record["latency_ms"])
+        elif record["outcome"] == "request_error":
+            request_errors += 1
+        else:
+            local_errors += 1
+        if record.get("error_code"):
+            errors[record["error_code"]] += 1
+        if diagnostic.get("exception_type"):
+            exception_types[diagnostic["exception_type"]] += 1
+        if diagnostic.get("proxy_http_status") is not None:
+            proxy_statuses[str(diagnostic["proxy_http_status"])] += 1
+        if (
+            not (record["outcome"] == "response" and record["http_status"] == 200)
+            and len(examples) < 3
+        ):
+            examples.append(
+                {k: record[k] for k in ("proxy_id", "outcome", "http_status", "error_code")}
+                | diagnostic
+            )
+        now = time.monotonic()
+        if completed == 1 or completed == total or completed % 10 == 0 or now - last_progress >= 15:
+            task_event(
+                "test_progress",
+                completed=completed,
+                total=total,
+                http_200=successes,
+                other_http=responses - successes,
+                request_errors=request_errors,
+                local_errors=local_errors,
+                elapsed_seconds=round(now - started, 2),
+            )
+            last_progress = now
+
     context = ssl.create_default_context(cafile=options.get("ca_file"))
-    records = await test_proxies(job, headers=options.get("request_headers"), ssl_context=context)
+    records = await test_proxies(
+        job, headers=options.get("request_headers"), ssl_context=context, on_result=completed_result
+    )
     for item in records:
         Feedback.model_validate(item)
-    for payload in callback_chunks(records, lambda chunk, part: {"results": chunk}, job):
-        await post_committed(base_url, key, "/v1/proxies/feedback", payload, job)
+    task_event(
+        "test_summary",
+        target_id=target["target_id"],
+        tested=len(records),
+        success_count=successes,
+        failure_count=responses - successes + request_errors,
+        local_error_count=local_errors,
+        http_status_counts=dict(statuses),
+        error_counts=dict(errors),
+        exception_types=dict(exception_types),
+        proxy_http_status_counts=dict(proxy_statuses),
+        failure_examples=examples,
+        successful_latency_avg_ms=round(sum(successful_latencies) / len(successful_latencies), 3)
+        if successful_latencies
+        else None,
+        duration_ms=round((time.monotonic() - started) * 1000, 3),
+    )
+    for part, payload in enumerate(
+        callback_chunks(records, lambda chunk, part: {"results": chunk}, job)
+    ):
+        task_event("feedback_send", part=part, records=len(payload["results"]))
+        ack = await post_committed(base_url, key, "/v1/proxies/feedback", payload, job)
+        task_event(
+            "feedback_committed",
+            part=part,
+            records=len(payload["results"]),
+            accepted=ack.get("accepted"),
+            ignored=ack.get("ignored"),
+            committed=True,
+        )
     return len(records)
 
 
@@ -81,6 +188,13 @@ async def report_source(job, summary, base_url, key, task_id):
     ):
         SourceResult.model_validate(payload)
         ack = await post_committed(base_url, key, "/v1/source-results", payload, job)
+        task_event(
+            "capture_import_committed",
+            part=part_count,
+            records=len(payload["proxies"]),
+            inserted=ack.get("inserted"),
+            committed=True,
+        )
         inserted += ack.get("inserted", 0)
         part_count += 1
     final = dict(
@@ -155,6 +269,14 @@ def main():
             )
             return 0
         start = time.monotonic()
+        task_event(
+            "capture_start",
+            task_id=os.getenv("CRAWLAB_TASK_ID"),
+            source_id=job["source"]["source_id"],
+            source_key=job["source"]["spider_key"],
+            source_host=urlsplit(job["source"]["url"]).hostname,
+            capture_proxy_configured=bool(settings.capture_proxy_url),
+        )
         try:
             from .crawler.execute import capture
 
@@ -175,6 +297,16 @@ def main():
                 "error_code": "execution_error",
             }
         failed = summary["outcome"] != "success"
+        task_event(
+            "capture_summary",
+            source_id=summary["source_id"],
+            outcome=summary["outcome"],
+            output_count=len(summary["proxies"]),
+            pages_ok=summary["pages_ok"],
+            pages_failed=summary["pages_failed"],
+            duration_ms=summary["duration_ms"],
+            error_code=summary["error_code"],
+        )
         task_id = os.environ.get("CRAWLAB_TASK_ID")
         if not task_id:
             raise ValueError("Crawlab did not supply CRAWLAB_TASK_ID")
