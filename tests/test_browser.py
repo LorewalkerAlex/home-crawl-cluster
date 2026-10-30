@@ -5,7 +5,7 @@ from pathlib import Path
 import uuid
 import pytest
 from playwright.sync_api import sync_playwright, expect
-from test_loopback_integration import api_server, KEY
+from test_loopback_integration import api_server, LOGIN_PASSWORD
 
 
 def test_single_page_browser_workflow(tmp_path):
@@ -46,9 +46,21 @@ def test_single_page_browser_workflow(tmp_path):
                 "response",
                 lambda response: responses.append((response.status, response.url)),
             )
+            page.add_init_script(
+                "sessionStorage.setItem('proxypoolKey','obsolete-test-key')"
+            )
             page.goto(url)
-            page.locator("#apiKey").fill(KEY)
-            page.get_by_role("button", name="连接", exact=True).click()
+            expect(page.locator("#notice")).to_have_text("请使用管理员账号登录")
+            page.locator("#password").fill("wrong-password")
+            page.get_by_role("button", name="登录", exact=True).click()
+            expect(page.locator("#notice")).to_have_text("账号或密码不正确")
+            page.locator("#password").fill(LOGIN_PASSWORD)
+            page.get_by_role("button", name="登录", exact=True).click()
+            expect(page.locator("#notice")).to_have_text("已登录")
+            assert page.locator("#password").input_value() == ""
+            assert page.evaluate("sessionStorage.getItem('proxypoolKey')") is None
+            page.reload()
+            expect(page.locator("#notice")).to_have_text("已登录")
             try:
                 expect(page.locator("#poolCount")).to_have_text("0 / 100,000")
             except AssertionError:
@@ -110,10 +122,22 @@ def test_single_page_browser_workflow(tmp_path):
             expect(source).not_to_be_visible()
             expect(page.locator("#sourcesBody")).to_contain_text("Offline source")
             assert not errors, errors
+            cookies = page.context.cookies()
+            assert any(
+                c["name"] == "proxypool_session"
+                and c["httpOnly"]
+                and c["sameSite"] == "Strict"
+                for c in cookies
+            )
             artifact = os.getenv("PROXYPOOL_SCREENSHOT")
             if artifact:
                 path = Path(artifact)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(path), full_page=True)
+            page.get_by_role("button", name="退出登录", exact=True).click()
+            expect(page.locator("#notice")).to_have_text("已退出登录")
+            expect(page.locator("#poolCount")).to_have_text("—")
+            page.reload()
+            expect(page.locator("#notice")).to_have_text("请使用管理员账号登录")
         finally:
             browser.close()

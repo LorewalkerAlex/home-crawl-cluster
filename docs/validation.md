@@ -24,6 +24,14 @@ Python3.13.14、SQLite3.53.1，任务专用venv。`tools/check_local.py --node <
 
 构建输入检查确认共享镜像只复制requirements/tasks.txt，并保持上游启动环境；Dockerfile RUN的Shell语法、当前文档链接和Python3.10语法检查通过。未在本地执行Docker／Compose，未构建、推送容器镜像或切换服务器Worker；镜像实际构建、资源／依赖兼容性及节点更新待用户执行。用户已完成的独立API／内网阶段及临时清理另按progress.md记录，不由本地测试代替。
 
+## 2026-10-30网页登录与连接提示
+
+用户截图显示数据和更新时间已加载，残留的“正在连接”来自成功分支未更新提示。已改用单管理员账号密码、pwdlib/Argon2密码哈希和Starlette签名Cookie，程序Bearer鉴权保持兼容；不增加用户表或访问历史。旧sessionStorage中的API Key被移除，网页不再提交Authorization程序密钥。连接／登录成功明确更新提示，失败有错误提示和请求超时，退出清除已显示的业务数据。
+
+完整检查143项＋57个历史子测试（JUnit200项）全部通过，0失败／0错误／0跳过。包含错误密码、正确登录、HttpOnly/Secure/SameSite Cookie、页面刷新恢复、退出、伪造Cookie、跨来源写入拒绝、机器Bearer兼容、私密初始化保留API Key／平台Token及Compose哈希转义。已安装Edge实际页面回归通过，不使用Docker。新增Linux/Python3.13服务依赖二进制闭包解析通过，Worker依赖清单未变。
+
+正式服务器新网页登录和初始化容器尚未执行；当前机器API／Crawlab／Worker原生检查已通过，来源和目标仍未配置。下一步先更新网页登录，再添加一个来源验证真实抓取与入库，不要求先提供测试网址。
+
 ## 实际业务布局测量
 
 本机临时库，50000端点×5目标=250000质量行；实际schema与两条索引，当前算法；热缓存、无HTTP，非服务器吞吐承诺。事务写完并清理临时库。各操作热身后5次中位数（候选获取3次、删除单次）：

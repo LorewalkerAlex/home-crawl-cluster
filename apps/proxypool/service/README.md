@@ -1,6 +1,6 @@
 # M05 正式服务
 
-当前入口 `python -B -m apps.proxypool.service.main --config config/proxypool.example.json`。启动前设置私有PROXYPOOL_API_KEY，自动发布默认关闭，不需要运行Crawlab就能本地查看空库页面和使用业务接口。
+当前入口 `python -B -m apps.proxypool.service.main --config config/proxypool.example.json`。启动前设置私有PROXYPOOL_API_KEY（程序使用）；网页登录另设单管理员密码哈希与会话密钥，见根README和部署指引。自动发布默认关闭，不需要运行Crawlab就能本地查看空库页面和使用业务接口。
 
 实际代码由app、config、models、database、writer、policy、cache构成，M03/M04发布器与单页UI共用一个常驻进程。仅Writer线程拥有写连接；API等待COMMIT但不阻塞接收其他请求。生产务必单进程，禁用多Uvicorn Worker，活动库不要放网络共享盘。
 

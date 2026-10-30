@@ -39,5 +39,7 @@
   "source_max_records": 10000,
   "source_max_pages": 50,
   "retry_attempts": 3,
+  "login_session_seconds": 86400,
+  "session_https_only": false,
   "native_task_limit": 8
 }

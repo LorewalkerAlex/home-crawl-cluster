@@ -3,18 +3,25 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-import hmac
 from pathlib import Path
 import sqlite3
 import time
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from .auth import install_auth
 from .cache import CandidateCache
 from .config import Settings, secret
 from .database import Database, LimitExceeded, NotFound
-from .models import Acquire, FeedbackPackage, ImportPackage, SourceInput, SourceResult, TargetInput
+from .models import (
+    Acquire,
+    FeedbackPackage,
+    ImportPackage,
+    SourceInput,
+    SourceResult,
+    TargetInput,
+)
 from .writer import Busy, Writer
 from ..crawler.registry import load_entries
 
@@ -24,7 +31,7 @@ class BodyLimit:
         self.app, self.limit = app, limit
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
+        if scope["type"] != "http" or not scope["path"].startswith(("/v1/", "/auth/")):
             return await self.app(scope, receive, send)
         parts, total = [], 0
         while True:
@@ -34,9 +41,9 @@ class BodyLimit:
             body = message.get("body", b"")
             total += len(body)
             if total > self.limit:
-                return await JSONResponse({"error": "request_too_large"}, status_code=413)(
-                    scope, receive, send
-                )
+                return await JSONResponse(
+                    {"error": "request_too_large"}, status_code=413
+                )(scope, receive, send)
             parts.append(body)
             if not message.get("more_body", False):
                 break
@@ -46,13 +53,25 @@ class BodyLimit:
             nonlocal sent
             if not sent:
                 sent = True
-                return {"type": "http.request", "body": b"".join(parts), "more_body": False}
+                return {
+                    "type": "http.request",
+                    "body": b"".join(parts),
+                    "more_body": False,
+                }
             return await receive()
 
         await self.app(scope, replay, send)
 
 
-def create_app(settings=None, *, api_key=None, publisher_client=None):
+def create_app(
+    settings=None,
+    *,
+    api_key=None,
+    publisher_client=None,
+    admin_username=None,
+    admin_password_hash=None,
+    session_secret=None,
+):
     settings = settings or Settings.load()
     api_key = api_key if api_key is not None else secret("PROXYPOOL_API_KEY")
     if len(api_key) < 16:
@@ -68,12 +87,19 @@ def create_app(settings=None, *, api_key=None, publisher_client=None):
         app.state.pool = CandidateCache(settings)
         publisher = None
         try:
-            app.state.targets = {row["target_id"]: row for row in await read(database.targets)}
+            app.state.targets = {
+                row["target_id"]: row for row in await read(database.targets)
+            }
             app.state.stats_cache = None
             from ..publishers import Publishers
 
             publisher = Publishers(
-                settings, database, write, read, app.state.pool.clear, client=publisher_client
+                settings,
+                database,
+                write,
+                read,
+                app.state.pool.clear,
+                client=publisher_client,
             )
             app.state.publishers = publisher
             publisher.start()
@@ -95,7 +121,9 @@ def create_app(settings=None, *, api_key=None, publisher_client=None):
     app.state.settings = settings
 
     async def read(function, *args):
-        return await asyncio.get_running_loop().run_in_executor(app.state.executor, function, *args)
+        return await asyncio.get_running_loop().run_in_executor(
+            app.state.executor, function, *args
+        )
 
     async def write(kind, payload, urgent=False):
         future = app.state.writer.submit(kind, payload, urgent=urgent)
@@ -103,9 +131,18 @@ def create_app(settings=None, *, api_key=None, publisher_client=None):
         app.state.stats_cache = None
         return result
 
-    def authorize(authorization: str = Header(default="")):
-        if not hmac.compare_digest(authorization, "Bearer " + api_key):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    authorize = install_auth(
+        app,
+        settings,
+        api_key,
+        username=admin_username or secret("PROXYPOOL_ADMIN_USERNAME") or "admin",
+        password_hash=admin_password_hash
+        if admin_password_hash is not None
+        else secret("PROXYPOOL_ADMIN_PASSWORD_HASH"),
+        session_secret=session_secret
+        if session_secret is not None
+        else secret("PROXYPOOL_SESSION_SECRET"),
+    )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, error):
@@ -113,7 +150,9 @@ def create_app(settings=None, *, api_key=None, publisher_client=None):
 
     @app.exception_handler(Busy)
     async def busy_error(request, error):
-        return JSONResponse({"error": "write_queue_busy", "committed": False}, status_code=503)
+        return JSONResponse(
+            {"error": "write_queue_busy", "committed": False}, status_code=503
+        )
 
     @app.exception_handler(NotFound)
     async def missing_error(request, error):
@@ -125,14 +164,18 @@ def create_app(settings=None, *, api_key=None, publisher_client=None):
 
     @app.exception_handler(sqlite3.Error)
     async def storage_error(request, error):
-        return JSONResponse({"error": "database_write_failed", "committed": False}, status_code=503)
+        return JSONResponse(
+            {"error": "database_write_failed", "committed": False}, status_code=503
+        )
 
     def size_check(items):
         if len(items) > settings.max_request_records:
             raise HTTPException(status_code=413, detail="too_many_records")
 
     async def refresh_targets():
-        app.state.targets = {row["target_id"]: row for row in await read(database.targets)}
+        app.state.targets = {
+            row["target_id"]: row for row in await read(database.targets)
+        }
         app.state.pool.clear()
 
     protected = [Depends(authorize)]
@@ -169,7 +212,9 @@ def create_app(settings=None, *, api_key=None, publisher_client=None):
 
     @app.put("/v1/targets/{target_id}", dependencies=protected)
     async def update_target(target_id: int, payload: TargetInput):
-        result = await write("target_save", dict(payload.model_dump(), target_id=target_id), True)
+        result = await write(
+            "target_save", dict(payload.model_dump(), target_id=target_id), True
+        )
         await refresh_targets()
         return result
 
@@ -235,7 +280,9 @@ def create_app(settings=None, *, api_key=None, publisher_client=None):
             raise NotFound("Target not found")
         if not target["enabled"]:
             raise HTTPException(status_code=409, detail="target_disabled")
-        item = await app.state.pool.acquire(target, lambda *args: read(database.candidates, *args))
+        item = await app.state.pool.acquire(
+            target, lambda *args: read(database.candidates, *args)
+        )
         if item is None:
             return JSONResponse({"error": "NO_PROXY_AVAILABLE"}, status_code=404)
         item["success_count"] = item.pop("result_bits").bit_count()

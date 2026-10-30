@@ -1,25 +1,48 @@
 "use strict";
 const $ = id => document.getElementById(id);
-let key = sessionStorage.getItem("proxypoolKey") || "";
+let authenticated = false, connectionFailed = false;
+sessionStorage.removeItem("proxypoolKey");
 let entries = [], expanded = null, expandedPage = 1, timer = null, latestStats = null;
-$("apiKey").value = key;
+function setAuthenticated(value, username="") {
+  authenticated=value; $("sessionControls").hidden=!value; $("loginForm").hidden=value; $("disconnect").hidden=!value;
+  $("currentUser").hidden=!value; $("currentUser").textContent=username;
+  for(const id of ["addTarget","addSource","capture","test","refresh"]) $(id).disabled=!value;
+  if(!value){clearTimeout(timer);latestStats=null;entries=[];expanded=null;
+    for(const id of ["poolCount","sourceCount","targetCount"])$(id).textContent="—";
+    for(const [id,columns] of [["sourcesBody",6],["targetsBody",5]]){
+      $(id).replaceChildren();empty($(id),columns,"登录后查看");
+    }
+    $("updated").textContent="";$("publishing").textContent="";
+  }
+}
 function node(tag, text, cls) { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; }
 function notice(text, error=false) { $("notice").textContent=text; $("notice").className=error?"error":""; }
 async function api(path, method="GET", body) {
-  const response = await fetch(path,{method,headers:{Authorization:"Bearer "+key,...(body?{"Content-Type":"application/json"}:{})},body:body?JSON.stringify(body):undefined});
-  const data = await response.json();
-  if (!response.ok) throw new Error(response.status===401?"API Key 不正确":(data.error||data.detail||"请求失败"));
-  return data;
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
+  try {
+    const response=await fetch(path,{method,credentials:"same-origin",signal:controller.signal,
+      headers:body?{"Content-Type":"application/json"}:{},body:body?JSON.stringify(body):undefined});
+    const data=await response.json();
+    if(!response.ok){
+      if(response.status===401 && path.startsWith("/v1/")){setAuthenticated(false);throw new Error("登录已失效，请重新登录");}
+      const messages={invalid_credentials:"账号或密码不正确",login_not_configured:"网页登录尚未设置",
+        login_unavailable:"登录暂不可用",origin_rejected:"请求来源不匹配，请刷新页面后重试",invalid_request:"请求内容不正确"};
+      throw new Error(messages[data.error||data.detail]||data.error||data.detail||"请求失败");
+    }
+    return data;
+  } catch(error){if(error.name==="AbortError")throw new Error("连接超时，请重试");throw error;}
+  finally{clearTimeout(timeout);}
 }
 function button(text, action, cls="secondary") { const el=node("button",text,cls); el.type="button"; el.onclick=()=>Promise.resolve().then(action).catch(e=>notice(e.message,true)); return el; }
 function cell(row, text) { const el=node("td",text); row.append(el); return el; }
 function date(value) { return value?new Date(value).toLocaleString():"—"; }
 function empty(body,columns,text) { const row=node("tr"); const el=cell(row,text);el.colSpan=columns;body.append(row); }
-function schedule() { clearTimeout(timer); const seconds=Math.max(5,Math.min(600,Number($("refreshSeconds").value)||15)); if (key) timer=setTimeout(refresh,seconds*1000); }
+function schedule() { clearTimeout(timer); const seconds=Math.max(5,Math.min(600,Number($("refreshSeconds").value)||15)); if (authenticated) timer=setTimeout(refresh,seconds*1000); }
 async function refresh() {
-  if (!key) return;
+  if (!authenticated) return false;
   try {
     const [stats,sources,registered] = await Promise.all([api("/v1/stats"),api("/v1/sources"),api("/v1/source-entries")]);
+    if(!authenticated)return false;
     latestStats=stats; entries=registered.items;
     $("poolCount").textContent=`${stats.proxy_count.toLocaleString()} / ${stats.pool_limit.toLocaleString()}`;
     $("sourceCount").textContent=stats.source_count;$("targetCount").textContent=stats.targets.filter(x=>x.enabled).length;
@@ -31,8 +54,9 @@ async function refresh() {
     $("updated").textContent="更新于 "+new Date().toLocaleTimeString();
     if (expanded!==null && stats.targets.some(t=>t.target_id===expanded)) await loadProxies(expanded,expandedPage);
     else expanded=null;
-  } catch(error) { notice(error.message,true); }
-  schedule();
+    if(connectionFailed){notice("连接已恢复");connectionFailed=false;}
+    schedule();return true;
+  } catch(error) { connectionFailed=true;notice(error.message,true);schedule();return false; }
 }
 function toggle(row, checked, action) { const input=node("input"); input.type="checkbox";input.checked=Boolean(checked);input.setAttribute("aria-label","启用 "+row.name);input.onchange=async()=>{input.disabled=true;try{await action(input.checked);await refresh();}catch(e){input.checked=!input.checked;notice(e.message,true);}finally{input.disabled=false;}}; return input; }
 function sourceData(row, enabled=row.enabled) {return {name:row.name,url:row.url,spider_key:row.spider_key,enabled:Boolean(enabled)};}
@@ -75,14 +99,26 @@ async function loadProxies(id,page){
   const pages=node("div",undefined,"pagination");const prev=button("上一页",()=>loadProxies(id,page-1));prev.disabled=page===1;const next=button("下一页",()=>loadProxies(id,page+1));next.disabled=page*data.size>=data.total;pages.append(prev,node("span",`第 ${page} 页 · 共 ${data.total} 条`),next);container.append(pages);
 }
 function editTarget(item={}){const form=$("targetForm");form.reset();form.elements.id.value=item.target_id||"";form.elements.name.value=item.name||"";form.elements.test_url.value=item.test_url||"";form.elements.enabled.checked=item.enabled===undefined?true:Boolean(item.enabled);$("targetDialog").showModal();}
-function editSource(item={}){const form=$("sourceForm");form.reset();form.elements.id.value=item.source_id||"";form.elements.name.value=item.name||"";form.elements.url.value=item.url||"";form.elements.enabled.checked=Boolean(item.enabled);const select=form.elements.spider_key;select.replaceChildren();for(const entry of entries){const option=node("option",entry.name);option.value=entry.key;select.append(option);}if(item.spider_key)select.value=item.spider_key;$("sourceDialog").showModal();}
+function editSource(item={}){const form=$("sourceForm");form.reset();form.elements.id.value=item.source_id||"";form.elements.name.value=item.name||"";form.elements.url.value=item.url||"";form.elements.enabled.checked=Boolean(item.enabled);const select=form.elements.spider_key;select.replaceChildren();for(const entry of entries){const option=node("option",entry.name);option.value=entry.key;select.append(option);}if(item.spider_key)select.value=item.spider_key;else if(entries.length)form.elements.url.value=entries[0].example_url;$("sourceDialog").showModal();}
 $("targetForm").onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;try{const id=form.elements.id.value;await api("/v1/targets"+(id?"/"+id:""),id?"PUT":"POST",{name:form.elements.name.value,test_url:form.elements.test_url.value,enabled:form.elements.enabled.checked});$("targetDialog").close();notice("测试网址已保存");await refresh();}catch(e){notice(e.message,true);}};
 $("sourceForm").onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;try{const id=form.elements.id.value;await api("/v1/sources"+(id?"/"+id:""),id?"PUT":"POST",{name:form.elements.name.value,url:form.elements.url.value,spider_key:form.elements.spider_key.value,enabled:form.elements.enabled.checked});$("sourceDialog").close();notice("来源已保存");await refresh();}catch(e){notice(e.message,true);}};
 $("sourceForm").elements.spider_key.onchange=event=>{const entry=entries.find(e=>e.key===event.target.value);if(entry)$("sourceForm").elements.url.value=entry.example_url;};
-$("connectForm").onsubmit=event=>{event.preventDefault();key=$("apiKey").value;sessionStorage.setItem("proxypoolKey",key);notice("正在连接…");refresh();};
-$("disconnect").onclick=()=>{key="";sessionStorage.removeItem("proxypoolKey");$("apiKey").value="";clearTimeout(timer);notice("已退出当前会话");};
+$("loginForm").onsubmit=async event=>{
+  event.preventDefault();const submit=$("loginForm").querySelector("button");submit.disabled=true;
+  notice("正在登录…");
+  try{const session=await api("/auth/login","POST",{username:$("username").value,password:$("password").value});
+    setAuthenticated(true,session.username);if(await refresh())notice("已登录");
+  }catch(error){notice(error.message,true);}finally{$("password").value="";submit.disabled=false;}
+};
+$("disconnect").onclick=async()=>{try{await api("/auth/logout","POST");setAuthenticated(false);notice("已退出登录");}catch(error){notice(error.message,true);}};
+async function restoreSession(){
+  setAuthenticated(false);notice("正在检查登录状态…");
+  try{const session=await api("/auth/session");if(session.authenticated){setAuthenticated(true,session.username);if(await refresh())notice("已登录");}
+    else notice(session.login_configured?"请使用管理员账号登录":"网页登录尚未设置");
+  }catch(error){notice(error.message,true);}
+}
 $("addTarget").onclick=()=>editTarget();$("addSource").onclick=()=>editSource();$("refresh").onclick=refresh;$("refreshSeconds").onchange=schedule;
 $("capture").onclick=async()=>{try{await api("/v1/actions/capture","POST");notice("已请求发布抓取任务，结果由 Worker 完成后更新。");await refresh();}catch(e){notice(e.message,true);}};
 $("test").onclick=async()=>{try{await api("/v1/actions/test","POST");notice("已请求发布测试任务，结果由 Worker 完成后更新。");await refresh();}catch(e){notice(e.message,true);}};
 document.querySelectorAll("[data-close]").forEach(button=>button.onclick=()=>$(button.dataset.close).close());
-if(key)refresh();
+restoreSession();

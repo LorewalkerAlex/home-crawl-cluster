@@ -2,7 +2,7 @@
 
 2026-10-29，以 `contracts.py`、`service/app.py` 和 `task_main.py` 为实现依据。HTTP JSON、字段snake_case；未知字段拒绝。下述不是Crawlab官方插件协议，Crawlab原生任务仍负责执行状态。
 
-M05所有`/v1/`请求用`Authorization: Bearer <PROXYPOOL_API_KEY>`；密钥至少16字符。`/healthz`和静态页面不需要密钥，业务数据需要。Crawlab原生API则是`Authorization: <CRAWLAB_API_TOKEN>`，两者不要混用。跨设备使用可信HTTPS，不忽略证书校验。当前为个人单一共享业务密钥，不建设用户体系。
+程序访问M05的`/v1/`请求继续用`Authorization: Bearer <PROXYPOOL_API_KEY>`；密钥至少16字符。网页使用单管理员账号密码＋签名Cookie会话，不输入或保存程序密钥。`/healthz`和静态页面不需要密钥，业务数据需要。Crawlab原生API则是`Authorization: <CRAWLAB_API_TOKEN>`，两者不要混用。跨设备使用可信HTTPS，不忽略证书校验。当前为个人单一共享业务密钥，不建设用户体系。
 
 | 请求 | 用途 |
 | --- | --- |
@@ -25,6 +25,14 @@ M05所有`/v1/`请求用`Authorization: Bearer <PROXYPOOL_API_KEY>`；密钥至�
 | POST /v1/actions/capture 或 test | 手动触发短发布；202只表示接受，不表示执行／业务提交成功 |
 
 写入API在实际COMMIT后200，响应含`committed:true`及inserted／accepted／ignored等计数。队列满或事务失败503；参数错误422；单包超过记录数／字节413；目标／来源不存在404；配置上限、停用目标等409；密钥错误401。事务失败重传原包；别因超时生成新ID。默认单包1000条／256KiB，请求方应同时遵守两项限制。
+
+## 网页登录
+
+GET /auth/session返回authenticated、username和login_configured；POST /auth/login接收username／password，正确后设置HttpOnly、SameSite=Strict的签名Cookie；生产默认Secure，登录保持时间默认86400秒。POST /auth/logout清除Cookie。网页登录后的API写操作要求Origin与当前Host一致，生产要求HTTPS Origin；机器Bearer请求沿用原接口，不受浏览器Origin要求影响。
+
+只有一个管理员，不增加用户表或访问历史。私密app.env保存PROXYPOOL_ADMIN_USERNAME、Argon2密码哈希及独立PROXYPOOL_SESSION_SECRET；不保存明文密码、不把密钥或密码写入Cookie。重新运行配置工具会轮换签名密钥，原会话需重新登录。密码校验用pwdlib／Argon2，会话复用Starlette SessionMiddleware；客户端只保存框架Cookie，并移除旧版本sessionStorage里的API Key。登录未初始化时网页提示尚未设置，机器API仍可使用原密钥。
+
+Cookie签名、密码哈希和原有Bearer鉴权是不同用途，Worker配置及回调协议不变。字段错误422、密码错误401、来源不匹配403；登录请求同样受请求字节上限约束。实现见service/auth.py和tools/configure_admin.py。
 
 ## 获取和反馈
 

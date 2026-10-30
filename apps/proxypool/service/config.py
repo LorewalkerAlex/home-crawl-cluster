@@ -57,8 +57,12 @@ class Settings:
     source_max_records: int = 10000
     source_max_pages: int = 50
     retry_attempts: int = 3
+    login_session_seconds: int = 86400
+    session_https_only: bool = True
 
     def __post_init__(self):
+        if type(self.session_https_only) is not bool:
+            raise ValueError("session_https_only must be a JSON boolean")
         if type(self.publishing_enabled) is not bool:
             raise ValueError("publishing_enabled must be a JSON boolean")
         if self.crawlab_ui_url and urlsplit(self.crawlab_ui_url).scheme not in (
@@ -68,6 +72,7 @@ class Settings:
             raise ValueError("Crawlab UI URL must be HTTP(S)")
         integers = [
             "port",
+            "login_session_seconds",
             "write_batch_records",
             "queue_max_records",
             "queue_max_requests",

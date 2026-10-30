@@ -22,6 +22,8 @@ def main():
     required = [
         "apps/proxypool/web/index.html",
         "tools/register_crawlab.py",
+        "tools/configure_admin.py",
+        "apps/proxypool/service/auth.py",
         "integrations/crawlab/program.py",
         "requirements/tasks.txt",
         "apps/proxypool/task_entry.py",

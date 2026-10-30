@@ -28,8 +28,11 @@ from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
 from apps.proxypool.service.app import create_app
 from apps.proxypool.service.config import Settings
 from integrations.crawlab.client import encode_job
+from pwdlib import PasswordHash
 
 KEY = "loopback-only-acceptance-key"
+LOGIN_PASSWORD = "loopback-only-admin-password"
+LOGIN_HASH = PasswordHash.recommended().hash(LOGIN_PASSWORD)
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -71,8 +74,14 @@ def api_server(tmp_path):
         port=13004,
         write_flush_seconds=0.02,
         candidate_min_score=0,
+        session_https_only=False,
     )
-    app = create_app(config, api_key=KEY)
+    app = create_app(
+        config,
+        api_key=KEY,
+        admin_password_hash=LOGIN_HASH,
+        session_secret="loopback-only-session-secret-32-characters",
+    )
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]

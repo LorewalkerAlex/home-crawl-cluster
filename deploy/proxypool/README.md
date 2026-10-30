@@ -59,6 +59,32 @@ fi
 
 初始预算API0.5CPU／512MiB，写队列10000条、1秒或1000条提交；不是服务器实测保证。原通用Worker保持原槽位和配额，由平台管理。首次真实测试建议batch10、concurrency2；节点私有max_concurrency对请求并发另设上限。
 
+## 网页管理员初始化与更新
+
+网页改用一个管理员账号密码登录，程序密钥只供Worker／调用方使用。用新API镜像内的标准工具在私有app.env保存密码哈希和独立Cookie签名密钥，原PROXYPOOL_API_KEY／CRAWLAB_API_TOKEN保持不变。浏览器不再复制API Key。新依赖只在service.txt，Worker依赖和已登记爬虫源码不需要更新。
+
+先按前面的代理构建命令构建API镜像，仍不重建Worker。随后用户在服务器现有SSH终端运行一次交互式设置（会输入用户名、密码和确认密码，不在命令行写密码）：
+
+```bash
+if cd /srv/apps/home-crawl-cluster &&
+    sudo docker compose -f deploy/proxypool/compose.yaml run --rm --no-deps \
+        --user 0:0 --name proxypool-admin-setup \
+        -v /srv/persistent/secrets/proxypool:/setup-secrets \
+        api python -B tools/configure_admin.py --env-file /setup-secrets/app.env; then
+    printf '%s\n' 'Dashboard administrator configured.'
+else
+    printf '%s\n' 'Administrator setup failed. Stop and report this output.'
+fi
+```
+
+这个一次性配置容器不启动API、不发布端口、不写数据库，正常退出后--rm自动清理；为写入root私密目录临时使用UID0，只读根文件系统保持。它只写正式app.env，文件0600，Argon2哈希使用Compose env_file支持的单引号保护美元符号，不输出密码／哈希／签名密钥。不生成临时回退文件。密码至少8字符，不设默认密码；首次用户名可选admin。重复运行可改密码，会使旧会话在API重载后失效。
+
+成功后使用本文件的API --force-recreate加载新环境，再刷新浏览器，以配置的账号密码登录。生产默认session_https_only=true及86400秒会话；如果未初始化，机器Bearer接口继续工作，网页提示尚未设置。此处不把登录未设置等同API不可用。初始化会话仅影响网页，不修改Worker配置，不开启自动发布。
+
+默认只通过已验收的HTTPS入口使用网页。服务端检查Cookie写请求Origin，避免同域其他服务代发写入；无需修改Caddy、DNS或开放额外端口。首次从旧前端更新时浏览器脚本会清除旧sessionStorage内的API Key。
+
+参考：[Starlette SessionMiddleware](https://www.starlette.dev/middleware/#sessionmiddleware)、[FastAPI密码哈希](https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/#password-hashing)、[Docker env_file语法](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)。采用这些组件，不新增OAuth服务、用户数据库或权限系统。
+
 ## 原生程序登记
 
 `tools/register_crawlab.py`创建／复用本业务两个专属程序，逐个同步完整源码和requirements.txt并读回校验，不运行任务。可在API容器中运行；解释器和私有配置路径是集群管理员提供的节点路径，不能填写API容器路径。统一镜像及节点配置挂载验收后，登记参数为`--python /opt/crawl-runtime/bin/python --settings-file /run/crawl-tasks/proxypool.json`。镜像尚未切换时不要先运行这些路径。
@@ -77,7 +103,7 @@ fi
 
 ## 验收、更新与停止
 
-先确认目标依赖和可信回调路径，再用页面启用一来源并手动发布，核对Task退出与来源最近摘要、代理入库。对一目标测小批，检查200／失败计分、时间和重复传输只计一次；积累足够成功样本后测试获取与统一使用反馈。没有高分代理时NO_PROXY_AVAILABLE是正常冷启动。
+先登录网页，点击添加来源，选一个已接入的来源，默认URL自动填充，填写名称并勾选启用；保存后点击立即发布抓取，核对Crawlab任务、来源输出／新增与代理总量。这一步不要求测试网址，测试网址保持0也可以抓取入库。抓取链路通过后，再添加一个实际需要访问的网站并对它测小批，检查200／失败计分、时间和重复传输只计一次；积累足够成功样本后测试获取与统一使用反馈。没有高分代理时NO_PROXY_AVAILABLE是正常冷启动。
 
 发布前读取本业务两个程序pending／running数量，达到native_task_limit（默认8）则本轮跳过，避免节点停机时无限积压；不等待任务完成、不创建业务任务状态库。每分钟一个100代理任务是最多6000次安排/小时，10万代理单目标一轮至少16.7小时，不能承诺5分钟全池重测。按完成速度、目标数、CPU／RSS、排队量、WAL和平台卷增长调整；先观察30—60分钟再开启定时。
 

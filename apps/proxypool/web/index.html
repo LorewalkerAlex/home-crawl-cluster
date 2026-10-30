@@ -7,10 +7,10 @@
 </head>
 <body>
 <header><div><span class="eyebrow">HOME SERVER</span><h1>Proxypool</h1><p>来源、测试网址与代理质量</p></div>
-  <form id="connectForm"><label>API Key<input id="apiKey" type="password" autocomplete="off" required></label><button>连接</button><button type="button" id="disconnect" class="secondary">退出</button></form>
+  <form id="loginForm"><label>账号<input id="username" name="username" autocomplete="username" value="admin" required></label><label>密码<input id="password" name="password" type="password" autocomplete="current-password" required></label><button>登录</button></form><div id="sessionControls" hidden><span id="currentUser"></span><button type="button" id="disconnect" class="secondary">退出登录</button></div>
 </header>
 <main>
-  <div id="notice" role="status" aria-live="polite">输入 API Key 连接。密钥仅保留在当前浏览器会话。</div>
+  <div id="notice" role="status" aria-live="polite">请使用管理员账号登录。</div>
   <section class="overview" aria-label="总量">
     <div class="metric"><span>代理总量 / 容量阈值</span><strong id="poolCount">—</strong></div>
     <div class="metric"><span>启用的代理来源</span><strong id="sourceCount">—</strong></div>
@@ -18,7 +18,7 @@
   </section>
   <div class="refresh"><span id="updated">尚未更新</span><label>刷新间隔（秒）<input id="refreshSeconds" type="number" value="15" min="5" max="600"></label><button id="refresh" class="secondary">刷新</button></div>
   <section class="panel" aria-labelledby="sourceTitle">
-    <div class="sectionhead"><div><h2 id="sourceTitle">代理来源</h2><p>脚本需先登记；新增数量为0，也可能只是本次结果全部重复。</p></div><div><button id="capture" class="secondary" disabled>立即发布抓取</button><button id="addSource">添加来源</button></div></div>
+    <div class="sectionhead"><div><h2 id="sourceTitle">代理来源</h2><p>选择代理来源，查看最近抓取结果。</p></div><div><button id="capture" class="secondary" disabled>立即发布抓取</button><button id="addSource">添加来源</button></div></div>
     <div class="tablewrap"><table><thead><tr><th>来源</th><th>启用</th><th>最近结果</th><th>输出 / 新增</th><th>耗时</th><th>操作</th></tr></thead><tbody id="sourcesBody"><tr><td colspan="6">连接后加载来源统计</td></tr></tbody></table></div>
     <p id="publishing" class="hint"></p>
   </section>

@@ -5,6 +5,8 @@
 | 文件 | 主要方法／类 |
 | --- | --- |
 | service/main.py | main：加载Settings并启动单进程uvicorn |
+| service/auth.py | install_auth、LoginInput：网页登录／退出、框架会话与原程序Bearer鉴权 |
+| tools/configure_admin.py | configure、main：隐藏输入配置单管理员，保留程序密钥 |
 | service/config.py | Settings.load、secret：JSON配置及env／_FILE秘密 |
 | service/app.py | create_app、lifespan、write/read闭包：鉴权HTTP、共享生命周期及静态页 |
 | service/database.py | Database.initialize、apply、select_tests、candidates、quality_page、stats |
