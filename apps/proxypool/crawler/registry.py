@@ -5,6 +5,26 @@ from pathlib import Path
 import re
 
 SOURCES = {
+    "ip89": {
+        "name": "89IP",
+        "entry": "apps.proxypool.crawler.spiders.ip89:ProxySourceSpider",
+        "example_url": "https://api.89ip.cn/tqdl.html?api=1&num=60&port=&address=&isp=",
+    },
+    "ipscdn": {
+        "name": "SCDN",
+        "entry": "apps.proxypool.crawler.spiders.ipscdn:ProxySourceSpider",
+        "example_url": "https://proxy.scdn.io/api/get_proxy.php?protocol=https&count=20",
+    },
+    "ipfreeonly": {
+        "name": "ProxyFreeOnly",
+        "entry": "apps.proxypool.crawler.spiders.ipfreeonly:ProxySourceSpider",
+        "example_url": "https://proxyfreeonly.com/api/data/proxy-list?page=1&locale=en&where=%7B%22protocols%22%3A%22http%22%7D",
+    },
+    "ip3366": {
+        "name": "IP3366",
+        "entry": "apps.proxypool.crawler.spiders.ip3366:ProxySourceSpider",
+        "example_url": "http://www.ip3366.net/?stype=1&page=1",
+    },
     "proxyscrape": {
         "name": "ProxyScrape HTTP text",
         "entry": "apps.proxypool.crawler.spiders.proxyscrape:ProxyScrapeSpider",

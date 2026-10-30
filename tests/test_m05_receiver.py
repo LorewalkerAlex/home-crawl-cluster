@@ -87,8 +87,10 @@ class ReceiverTests(unittest.TestCase):
     def test_invalid_json_content_type_path_and_size(self):
         self.assertEqual(self.post(raw=b'{broken')[0], 422)
         self.assertEqual(self.post(raw=b'\xff')[0], 422)
-        self.assertEqual(self.post(synthetic_callback(), content_type="text/plain")[0], 415)
-        self.assertEqual(self.post(synthetic_callback(), path="/wrong")[0], 404)
+        # These requests are rejected before reading the body. Send headers only
+        # so an unread payload cannot race the response into a Windows TCP reset.
+        self.assertEqual(self.post(raw=b"", content_type="text/plain")[0], 415)
+        self.assertEqual(self.post(raw=b"", path="/wrong")[0], 404)
         self.assertEqual(self.received, [])
 
     def test_unbounded_or_ambiguous_content_lengths_are_rejected(self):

@@ -20,6 +20,7 @@ from integrations.crawlab.program import program_files
 import time
 from urllib.parse import urlsplit
 import httpx
+import pytest
 import uvicorn
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -329,6 +330,64 @@ def test_https_target_via_actual_connect_proxy(tmp_path):
         with app.state.writer.database.reader() as db:
             row = db.execute("SELECT * FROM proxy_quality").fetchone()
         assert row["result_bits"] == 1
+
+
+@pytest.mark.parametrize(
+    "key,expected", [("ip89", 2), ("ipscdn", 1), ("ipfreeonly", 1), ("ip3366", 0)]
+)
+def test_legacy_source_worker_commits_results_and_blocked_source_health(tmp_path, key, expected):
+    class Source(QuietHandler):
+        def do_GET(self):
+            if key == "ip3366":
+                return self.reply(521, "<script>challenge()</script>")
+            if key == "ip89":
+                return self.reply(200, "192.0.2.1:8080<br>192.0.2.2:3128")
+            if key == "ipscdn":
+                return self.reply(
+                    200, json.dumps({"code": 200, "data": {"proxies": ["192.0.2.1:8080"]}})
+                )
+            country = "CN" if "page=2" in self.path else "US"
+            return self.reply(
+                200,
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "ip": "192.0.2.1",
+                                "port": "8080",
+                                "country": {"countryCode": country},
+                                "protocols": ["http"],
+                            }
+                        ],
+                        "totalItems": 2,
+                    }
+                ),
+            )
+
+    with api_server(tmp_path) as (client, _app, url), http_server(Source) as source_server:
+        source = client.post(
+            "/v1/sources",
+            json={
+                "name": "legacy fixture",
+                "spider_key": key,
+                "url": f"http://127.0.0.1:{source_server.server_port}/?page=1",
+                "enabled": True,
+            },
+        ).json()
+        job = dict(
+            common_job(),
+            kind="capture",
+            source={x: source[x] for x in ("source_id", "spider_key", "url")},
+            source_max_records=100,
+            source_max_pages=10,
+            source_timeout_seconds=5,
+        )
+        result = worker(job, url)
+        assert result.returncode == (1 if key == "ip3366" else 0), (result.stdout, result.stderr)
+        assert client.get("/v1/stats").json()["proxy_count"] == expected
+        state = client.get("/v1/sources").json()["items"][0]
+        assert state["outcome"] == ("failed" if key == "ip3366" else "success")
+        assert state["inserted_count"] == expected
 
 
 def test_actual_scrapy_pagination_and_source_commit(tmp_path):
