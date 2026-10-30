@@ -60,7 +60,7 @@ M05以最后收到的完整结果更新该来源最近健康及Task ID；不保�
 
 test输入含kind、target快照（target_id/revision/test_url等）、proxies端点列表、concurrency、request_timeout_seconds、retry_attempts、retry_window_seconds、max_request_records、max_request_bytes。capture输入含source（source_id/spider_key/url）、来源页／条／超时上限及workspace_spider。Base64只是安全传参，不是加密；**URL不得带凭据，Token／真实请求头不进入任务参数**。
 
-节点私有配置见[任务环境](../deploy/crawlab/task-runtime.md)：JSON可含m05_url、api_key、request_headers、ca_file、max_concurrency，地址和密钥也可通过任务环境变量提供。Crawlab注入CRAWLAB_TASK_ID。不把私有配置作为同步源码；任务并发取发布参数与节点max_concurrency的较小值。源码在当前任务目录导入，不依赖固定/opt路径或预装业务包。
+节点私有配置见[任务环境](../deploy/crawlab/task-runtime.md)：JSON可含m05_url、api_key、request_headers、ca_file、max_concurrency，地址和密钥也可通过任务环境变量提供。Crawlab注入CRAWLAB_TASK_ID。不把私有配置作为同步源码；任务并发取发布参数与节点max_concurrency的较小值。源码在当前任务目录导入；通用任务解释器由平台登记命令指定，不需要预装业务包。
 
 
 请求测试每成员一次，响应后释放连接，只读取响应头判断状态和耗时；不下载完整目标内容。HTTP跳转按aiohttp默认规则处理，计最终响应。callback仅在网络错误／429／5xx时原包有限重试，默认3次、总窗口60秒；超过后任务失败，不在Worker重新测试该代理，下次M04按双时间再选择。

@@ -1,4 +1,4 @@
-# Runtime in the existing Crawlab 0.6.3 image: CPython 3.10, Linux amd64.
+# Shared crawl-task dependencies: Crawlab 0.6.3, CPython 3.10, Linux amd64.
 Scrapy==2.19.0
 aiohttp==3.14.5
 pydantic==2.14.1

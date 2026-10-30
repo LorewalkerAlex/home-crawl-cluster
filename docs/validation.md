@@ -16,6 +16,14 @@ Python3.13.14、SQLite3.53.1，任务专用venv。`tools/check_local.py --node <
 
 2026-10-29修正后最终完整检查：137项测试＋57个子测试（JUnit共194项），0失败、0错误、0跳过，无资源泄漏警告。137项中当前业务31项、历史回归106项，子测试属于历史回归，不混称全部为新业务验收。新增独立程序--check、原生排队查询、大任务拆块、回调JSON字节上限检查；6项真实回环集成直接运行交付文件。首轮浏览器统计等待失败，补充页面／响应诊断后隔离复测与最终全套回归均通过，没有据此更改业务逻辑。原始JUnit及页面截图仅保留`.local/check-results/`，不提交Git。缺少Node或已安装浏览器时对应检查可跳过，因此应报告实际skip，不能只报命令退出0。
 
+## 2026-10-30集群统一运行镜像
+
+按用户新确认准备deploy/crawlab/worker-runtime：固定上游镜像、只COPY共享依赖清单、隔离任务解释器；节点只读配置挂载和仅Worker的覆盖由集群管理。没有业务源码／凭据进入镜像，没有修改Proxypool业务协议或节点选择方式；新增私密配置工具只复制业务密钥，不复制平台Token，已有不同内容不覆盖。
+
+本轮完整回归139项＋57个历史子测试（JUnit196项）通过、0失败／0跳过；新增两项私密配置检查。初次全套有一条Windows子进程诊断日志解码线程警告，随后在测试读取端保留非UTF8字节的反斜杠表示，19项受影响／交付／配置／浏览器检查复测通过，并把线程警告作为错误处理，复测无警告。业务JSON及SQLite数据处理未改变。
+
+构建输入检查确认共享镜像只复制requirements/tasks.txt，并保持上游启动环境；Dockerfile RUN的Shell语法、当前文档链接和Python3.10语法检查通过。未在本地执行Docker／Compose，未构建、推送容器镜像或切换服务器Worker；镜像实际构建、资源／依赖兼容性及节点更新待用户执行。用户已完成的独立API／内网阶段及临时清理另按progress.md记录，不由本地测试代替。
+
 ## 实际业务布局测量
 
 本机临时库，50000端点×5目标=250000质量行；实际schema与两条索引，当前算法；热缓存、无HTTP，非服务器吞吐承诺。事务写完并清理临时库。各操作热身后5次中位数（候选获取3次、删除单次）：
@@ -36,7 +44,7 @@ Python3.13.14、SQLite3.53.1，任务专用venv。`tools/check_local.py --node <
 
 API锁定FastAPI／uvicorn／httpx／Pydantic；任务环境锁定Scrapy／aiohttp及完整依赖。任务目标Linux/amd64 Python3.10，与本机3.13分开解析，已验证目标平台二进制wheel闭包；例如cssselect、filelock、multidict、platformdirs、pycparser、zope-interface选取仍支持3.10的版本，未照搬本机freeze。此前service／任务目标依赖闭包及本机pip check通过，本轮复用相同锁定依赖，仅将worker清单改名tasks；没有因改名重新安装依赖。
 
-修正版只有API Dockerfile。已删除业务Worker镜像、平台Compose覆盖、Worker构建／回退工具及过时venv引导清单；业务Compose不依赖平台Docker网络，prepare仅生成API资产。静态检查确认API构建输入和完整任务18文件清单存在，原生注册使用接口替身验证逐文件回读。通用节点只需兼容任务依赖，不预装本仓库；节点私有配置不进入同步清单。未执行Docker／Compose，也未实测原生平台的此次多文件同步。
+2026-10-29边界修正时只有API Dockerfile。已删除业务Worker镜像、平台Compose覆盖、Worker构建／回退工具及过时venv引导清单；业务Compose不依赖平台Docker网络，prepare仅生成API资产。静态检查确认API构建输入和完整任务18文件清单存在，原生注册使用接口替身验证逐文件回读。通用节点只需兼容任务依赖，不预装本仓库；节点私有配置不进入同步清单。未执行Docker／Compose，也未实测原生平台的此次多文件同步。
 
 
 本地没有Linux/Python3.10实际运行时，目标依赖解析和3.10 AST检查不能代替通用节点实际运行。服务器需实际验证：原生程序文件同步、环境／CA、权限／卷、Compose资源约束、M05可信内网入口、真实来源和代理、小规模任务闭环、长期队列／磁盘增长。部署步骤见[部署指引](../deploy/proxypool/README.md)。

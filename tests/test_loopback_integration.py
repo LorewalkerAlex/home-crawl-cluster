@@ -132,6 +132,7 @@ def worker(job, base_url, extra_env=None, workdir=None):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="backslashreplace",  # Preserve diagnostic bytes from native Windows libraries.
             timeout=30,
         )
 

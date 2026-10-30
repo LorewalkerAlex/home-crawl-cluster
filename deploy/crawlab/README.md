@@ -4,7 +4,7 @@
 
 截至 2026-10-26，Community 0.6.3 的 Master、专用 MongoDB 和一个 Worker 已完成基础部署；Master 禁用任务执行，home-worker-01 为一任务槽。用户执行全部服务器变更，smoke 三条结果、已有结果 API 分页及现有 Worker 改走内网域名后的新代码同步／执行／结果回传已阶段验收。本地 Codex 独立复核正式配置哈希、绑定及路由，任务日志和 Data 截图仍按用户证据记录，不冒充独立 API 全字段核验。
 
-2026-10-29补充：Proxypool／M05已本地实现，修正版尚未常驻部署；Crawlab保持独立通用平台，任务依赖准备见[节点环境](task-runtime.md)。异设备接入、长期性能、实际资源、重启保持和备份恢复未验收。完整进度见 [progress.md](../../progress.md)，服务器事实与来源以 home-server-ops 的 facts.yaml 为准。本文是本地部署文档，不表示服务器内旧 README 已同步更新。
+2026-10-29补充：Proxypool／M05已本地实现；2026-10-30用户已启动独立API并完成内网连通，完整业务联调仍待执行；Crawlab保持独立通用平台，任务依赖准备见[节点环境](task-runtime.md)。异设备接入、长期性能、实际资源、重启保持和备份恢复未验收。完整进度见 [progress.md](../../progress.md)，服务器事实与来源以 home-server-ops 的 facts.yaml 为准。本文是本地部署文档，不表示服务器内旧 README 已同步更新。
 
 ## 部署与配置
 

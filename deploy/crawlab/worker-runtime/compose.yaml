@@ -1,0 +1,12 @@
+# Cluster-side overlay, merged AFTER the existing base and LAN overrides.
+# Source code and credentials are not part of this image.
+services:
+  worker:
+    image: ${CRAWLAB_WORKER_RUNTIME_IMAGE:-home-crawl-cluster/worker-runtime:0.6.3-py310-20261030.1}
+    volumes:
+      - type: bind
+        source: ${CRAWLAB_TASK_CONFIG_DIR:-/srv/persistent/secrets/crawlab-tasks/home-worker-01}
+        target: /run/crawl-tasks
+        read_only: true
+        bind:
+          create_host_path: false

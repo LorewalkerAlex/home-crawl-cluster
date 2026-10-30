@@ -32,11 +32,27 @@ def main():
             for source in copied
         ):
             raise ValueError("API runtime asset not copied: " + value)
+    runtime = ROOT / "deploy/crawlab/worker-runtime/Dockerfile"
+    instructions = [
+        line.strip()
+        for line in runtime.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    copies = [
+        shlex.split(line)[1:-1] for line in instructions if line.startswith("COPY ")
+    ]
+    if copies != [["requirements/tasks.txt"]]:
+        raise ValueError("Shared Worker image must copy only its dependency manifest")
+    if any(
+        line.startswith(("CMD ", "ENTRYPOINT ", "WORKDIR ", "ENV "))
+        for line in instructions
+    ):
+        raise ValueError("Shared image must preserve the upstream startup environment")
     files = program_files()
     assert "proxypool_task.py" in files and "requirements.txt" in files
     assert not any("service/" in name or "web/" in name for name in files)
     print(
-        f"API inputs and {len(files)} task files present; Docker execution remains unverified"
+        f"API/shared-runtime inputs and {len(files)} task files present; Docker execution remains unverified"
     )
 
 

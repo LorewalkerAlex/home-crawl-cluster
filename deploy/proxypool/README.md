@@ -1,8 +1,8 @@
 # Proxypool 部署指引
 
-2026-10-29修正：此前要求替换Crawlab Worker业务镜像的方案撤回。按用户输出，本轮API／Worker业务镜像标签、服务器克隆和四处业务路径已清理，既有Crawlab未改动，共享镜像和构建缓存未清空。以下是修正后的待执行步骤；本轮本地没有使用Docker或操作服务器。
+2026-10-29修正：此前要求替换Crawlab Worker业务镜像的方案撤回。按用户输出，本轮API／Worker业务镜像标签、服务器克隆和四处业务路径已清理，既有Crawlab未改动，共享镜像和构建缓存未清空。2026-10-30补充：用户已完成修正版API启动和内网连通阶段，临时文件清理通过；下一步为集群统一Worker镜像及完整业务联调。下文保留从初始化开始的部署流程，已验收步骤不重复执行。本地没有使用Docker或代操作服务器。
 
-Proxypool只部署自己的一个API容器，包含M03/M04/M05及页面。Crawlab是独立平台，已有通用Worker继续使用；本业务不管理其镜像、Compose、节点目录或Docker socket。源码以完整程序交给Crawlab同步，依赖与节点私有配置由集群管理员准备，见[通用节点任务环境](../crawlab/task-runtime.md)。
+Proxypool只部署自己的一个API容器，包含M03/M04/M05及页面。Crawlab是独立平台，已有通用Worker由集群侧统一依赖镜像维护；本业务不管理其镜像、Compose、节点目录或Docker socket。源码以完整程序交给Crawlab同步，依赖与节点私有配置由集群管理员准备，见[通用节点任务环境](../crawlab/task-runtime.md)。
 
 ## 部署顺序
 
@@ -11,7 +11,7 @@ Proxypool只部署自己的一个API容器，包含M03/M04/M05及页面。Crawla
 3. 配置crawlab_url为业务容器可达的原生API地址（含/api）；配置API Token。容器独立网络，不依赖master这个Docker服务名，也不自动加入crawlab_default。
 4. 服务器构建并启动自己的API镜像，验证回环13005及鉴权；容器内端口仍13004。13004宿主端口已由Cashew使用，不能复用。
 5. 按服务器当前完整Caddy配置增量接通M05仅内网可信HTTPS，验证通用节点能回调、API容器能访问Crawlab。新业务网络的实际来源网段需核对后加入对应站点ACL，不照搬Crawlab网段。
-6. 集群侧为通用节点准备任务依赖、私有回调JSON与合适解释器；不覆盖原Crawlab Python/SDK。登记完整抓取／测试程序并记录两个ID。
+6. 集群侧构建统一Worker依赖镜像，准备只读私有回调JSON；任务解释器为/opt/crawl-runtime/bin/python，不覆盖原Crawlab Python/SDK。登记完整抓取／测试程序并记录两个ID。
 7. 手动运行一来源、一目标的小批任务，验证原生日志→直接回调→SQLite提交→评分→获取／使用反馈，然后观察资源并开启有限定时发布。
 
 上述步骤按真实输出逐段推进，失败先分析；用户执行所有服务器变更。本文件不提供未经当前配置核验的Caddy整文件、UFW规则或Worker替换命令。
@@ -61,7 +61,7 @@ fi
 
 ## 原生程序登记
 
-`tools/register_crawlab.py`创建／复用本业务两个专属程序，逐个同步完整源码和requirements.txt并读回校验，不运行任务。可在API容器中运行；解释器和私有配置路径是集群管理员提供的节点路径，不能填写API容器路径。例如管理员统一提供/task-runtime/bin/python和/run/private/proxypool.json时，登记参数为`--python /task-runtime/bin/python --settings-file /run/private/proxypool.json`。这些仅是参数示意，不是假定现有节点已有该目录。
+`tools/register_crawlab.py`创建／复用本业务两个专属程序，逐个同步完整源码和requirements.txt并读回校验，不运行任务。可在API容器中运行；解释器和私有配置路径是集群管理员提供的节点路径，不能填写API容器路径。统一镜像及节点配置挂载验收后，登记参数为`--python /opt/crawl-runtime/bin/python --settings-file /run/crawl-tasks/proxypool.json`。镜像尚未切换时不要先运行这些路径。
 
 默认解释器python；若使用节点环境变量提供PROXYPOOL_M05_URL与PROXYPOOL_API_KEY，可以省略settings-file。不要把Token写到命令中。Crawlab各可执行节点都要具有所指定的环境；Master继续禁用执行。两程序允许平台随机分配节点，不由业务轮换固定节点ID。
 
